@@ -67,7 +67,7 @@ struct PortDetailView: View {
 
     private var header: some View {
         HStack(alignment: .center, spacing: 12) {
-            Image(systemName: "shippingbox.fill")
+            Image(systemName: isInstalled ? "shippingbox.fill" : "shippingbox")
                 .font(.system(size: 34))
                 .foregroundStyle(.tint)
                 .accessibilityHidden(true)

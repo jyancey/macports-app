@@ -301,7 +301,8 @@ struct ContentView: View {
             Table(rows, selection: $searchSelection) {
                 TableColumn("Name", value: \.name)
                 TableColumn("Status") { row in
-                    Text(row.isInstalled ? "Installed" : "")
+                    Label(row.isInstalled ? "Installed" : "Not installed",
+                          systemImage: row.isInstalled ? "shippingbox.fill" : "shippingbox")
                         .foregroundStyle(.secondary)
                 }
             }
