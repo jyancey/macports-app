@@ -210,6 +210,45 @@ public struct PortClient: Sendable {
         await tail.value
     }
 
+    /// Adds a ports source to sources.conf. The edited file is staged in a private temp
+    /// directory and copied into place with administrator privileges.
+    public func addSource(_ url: String, to confPath: String) async throws {
+        guard MacPortsInfo.isValidSourceURL(url) else { throw PortClientError.invalidName(url) }
+        try await editSources(confPath) { text in
+            guard let updated = MacPortsInfo.addingSource(url, to: text) else {
+                throw PortClientError.commandFailed(status: 1, stderr: "\(url) is already a source.")
+            }
+            return updated
+        }
+    }
+
+    /// Removes a ports source from sources.conf. The last remaining source cannot be removed.
+    public func removeSource(_ url: String, from confPath: String) async throws {
+        guard MacPortsInfo.isValidSourceURL(url) else { throw PortClientError.invalidName(url) }
+        try await editSources(confPath) { text in
+            guard let updated = MacPortsInfo.removingSource(url, from: text) else {
+                throw PortClientError.commandFailed(
+                    status: 1, stderr: "\(url) is not a source, or it is the only source.")
+            }
+            return updated
+        }
+    }
+
+    private func editSources(_ confPath: String, _ transform: (String) throws -> String) async throws {
+        guard PortClient.isSafePath(confPath) else { throw PortClientError.invalidName(confPath) }
+        let current = (try? String(contentsOfFile: confPath, encoding: .utf8)) ?? ""
+        let updated = try transform(current)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ports-app-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let staged = directory.appendingPathComponent("sources.conf")
+        try updated.write(to: staged, atomically: true, encoding: .utf8)
+        guard PortClient.isSafePath(staged.path) else { throw PortClientError.invalidName(staged.path) }
+        try await runPrivileged("/bin/cp \(staged.path) \(confPath)")
+    }
+
     static func isValidVersionSpec(_ spec: String) -> Bool {
         spec.hasPrefix("@") && spec.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || "@._+-".contains($0)) }
     }

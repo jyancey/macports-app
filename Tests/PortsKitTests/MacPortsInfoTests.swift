@@ -31,3 +31,40 @@ import Testing
         #expect(PortClient.problem(withExecutablePath: "/bin/ls") == nil)
     }
 }
+
+@Suite struct SourcesTests {
+    let conf = "# c\nfile:///a/ports\nrsync://x/ports.tar.gz [default]\n"
+
+    @Test func validatesURLs() {
+        #expect(MacPortsInfo.isValidSourceURL("rsync://host/ports.tar.gz"))
+        #expect(MacPortsInfo.isValidSourceURL("file:///Users/me/ports"))
+        #expect(!MacPortsInfo.isValidSourceURL("file://host/x"))
+        #expect(!MacPortsInfo.isValidSourceURL("https://x/y; rm -rf /"))
+        #expect(!MacPortsInfo.isValidSourceURL("https://x/\"y"))
+        #expect(!MacPortsInfo.isValidSourceURL("/plain/path"))
+    }
+
+    @Test func insertsRemoteBeforeDefault() {
+        let out = MacPortsInfo.addingSource("https://m/ports", to: conf)
+        #expect(MacPortsInfo.parseSources(out ?? "") == ["file:///a/ports", "https://m/ports", "rsync://x/ports.tar.gz"])
+    }
+
+    @Test func insertsLocalFirst() {
+        let out = MacPortsInfo.addingSource("file:///b", to: conf)
+        #expect(MacPortsInfo.parseSources(out ?? "").first == "file:///b")
+    }
+
+    @Test func rejectsDuplicates() {
+        #expect(MacPortsInfo.addingSource("file:///a/ports", to: conf) == nil)
+    }
+
+    @Test func removesSourceKeepingFlagsOfOthers() {
+        let out = MacPortsInfo.removingSource("file:///a/ports", from: conf)
+        #expect(out == "# c\nrsync://x/ports.tar.gz [default]\n")
+    }
+
+    @Test func refusesToRemoveLastOrUnknownSource() {
+        #expect(MacPortsInfo.removingSource("file:///zzz", from: conf) == nil)
+        #expect(MacPortsInfo.removingSource("file:///a", from: "file:///a\n") == nil)
+    }
+}
