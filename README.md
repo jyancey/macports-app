@@ -23,7 +23,7 @@ The app shows the MacPorts logo in the toolbar and the empty state, loaded from
 
 ## Requirements
 
-- macOS 14 or later
+- macOS 26 (Tahoe) or later
 - MacPorts installed at `/opt/local` (`/opt/local/bin/port`)
 - Xcode / Swift 6 toolchain
 
