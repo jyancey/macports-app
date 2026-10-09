@@ -79,9 +79,20 @@ public struct PortClient: Sendable {
     /// `port install` needs root, so it runs through the standard macOS administrator password
     /// prompt. That prompt can't stream output, so the command writes to a private log file
     /// that is tailed while it runs.
-    public func install(_ name: String,
+    public func install(_ name: String, variantFlags: [String] = [],
                         onOutput: @escaping @MainActor @Sendable (String) -> Void) async throws {
-        try await runStreaming(action: "install", name: name, onOutput: onOutput)
+        guard PortClient.isValidPortName(name) else { throw PortClientError.invalidName(name) }
+        for flag in variantFlags where !PortClient.isValidVariantFlag(flag) {
+            throw PortClientError.invalidName(flag)
+        }
+        try await runStreaming(action: "install", arguments: ([name] + variantFlags).joined(separator: " "),
+                               onOutput: onOutput)
+    }
+
+    /// Variants the port offers, with defaults and requirements.
+    public func variants(of name: String) async throws -> [PortVariant] {
+        guard PortClient.isValidPortName(name) else { throw PortClientError.invalidName(name) }
+        return PortVariantParser.parse(try await run(["-q", "variants", name]))
     }
 
     /// Uninstalls a port (fails, with `port`'s explanation in the output, if other ports depend on it).
@@ -157,6 +168,11 @@ public struct PortClient: Sendable {
 
     static func isValidVersionSpec(_ spec: String) -> Bool {
         spec.hasPrefix("@") && spec.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || "@._+-".contains($0)) }
+    }
+
+    static func isValidVariantFlag(_ flag: String) -> Bool {
+        guard let sign = flag.first, sign == "+" || sign == "-" else { return false }
+        return isValidPortName(String(flag.dropFirst()).replacingOccurrences(of: ".", with: "_"))
     }
 
     static func isValidPortName(_ name: String) -> Bool {

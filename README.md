@@ -15,6 +15,7 @@ Early development. Currently implemented:
 - [x] Uninstall an installed port (with confirmation)
 - [x] Outdated tab: list outdated ports, upgrade one or all (asks for your administrator password)
 - [x] Inactive tab: list old versions left behind by upgrades; remove one or all (asks for your administrator password)
+- [x] Variant selection on install (Install opens a sheet listing the port's variants)
 
 ## MacPorts logo
 

@@ -28,3 +28,11 @@ struct PortNameTests {
     #expect(!PortClient.isValidVersionSpec("@1 ; rm"))
     #expect(!PortClient.isValidVersionSpec("@$(x)"))
 }
+
+@Test func variantFlagValidation() {
+    #expect(PortClient.isValidVariantFlag("+universal"))
+    #expect(PortClient.isValidVariantFlag("-gpl2"))
+    #expect(!PortClient.isValidVariantFlag("universal"))
+    #expect(!PortClient.isValidVariantFlag("+x; rm"))
+    #expect(!PortClient.isValidVariantFlag("+"))
+}
