@@ -18,6 +18,7 @@ Early development. Currently implemented:
 - [x] Variant selection on install (Install opens a sheet listing the port's variants)
 - [x] Pre-built binary indicator (detail pane and install sheet; warns that non-default variants build from source)
 - [x] Live install status in the Available table (Downloading…, Building…, dependencies included)
+- [x] Verbose output toggle in the Activity pane (off by default)
 
 ## MacPorts logo
 

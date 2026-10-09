@@ -7,6 +7,8 @@ import PortsKit
 final class ActivityLog {
     private(set) var lines: [String] = []
     private(set) var isRunning = false
+    /// True when the most recent run ended in an error.
+    private(set) var lastRunFailed = false
     private(set) var runningName: String?
     var isVisible = false
     /// Live status of each port the current run is touching, including dependencies.
@@ -22,6 +24,7 @@ final class ActivityLog {
              work: (@escaping @MainActor @Sendable (String) -> Void) async throws -> Void) async -> Bool {
         guard !isRunning else { return false }
         isRunning = true
+        lastRunFailed = false
         runningName = name
         isVisible = true
         append("$ \(title)\n")
@@ -35,12 +38,13 @@ final class ActivityLog {
         } catch PortClientError.cancelled {
             append("Cancelled\n\n")
         } catch {
+            lastRunFailed = true
             append("✗ \(error.localizedDescription)\n\n")
         }
         return false
     }
 
-    func clear() { lines.removeAll() }
+    func clear() { lines.removeAll(); lastRunFailed = false }
 
     private func append(_ text: String) {
         if isRunning {
@@ -56,14 +60,21 @@ final class ActivityLog {
 
 struct ActivityLogView: View {
     @Environment(ActivityLog.self) private var log
+    @AppStorage(PortClient.verboseDefaultsKey) private var verbose = false
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
                 Label("Activity", systemImage: "terminal")
                     .font(.headline)
-                if log.isRunning { ProgressView().controlSize(.small) }
+                Circle()
+                    .fill(log.isRunning ? Color.yellow : log.lastRunFailed ? Color.red : Color.green)
+                    .frame(width: 10, height: 10)
+                    .help(log.isRunning ? "Busy" : log.lastRunFailed ? "Last command failed" : "Ready")
                 Spacer()
+                Toggle("Verbose", isOn: $verbose)
+                    .toggleStyle(.checkbox)
+                    .help("Show full build output (-v). Takes effect on the next command.")
                 Button("Clear", systemImage: "trash") { log.clear() }
                     .disabled(log.lines.isEmpty || log.isRunning)
                 Button("Hide", systemImage: "chevron.down") { log.isVisible = false }

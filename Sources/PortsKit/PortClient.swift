@@ -30,10 +30,18 @@ public enum PortClientError: LocalizedError {
 public struct PortClient: Sendable {
     public static let defaultExecutablePath = "/opt/local/bin/port"
 
-    public let executableURL: URL
+    /// UserDefaults key for the "verbose output" preference.
+    public static let verboseDefaultsKey = "verboseOutput"
 
-    public init(executablePath: String = PortClient.defaultExecutablePath) {
+    public let executableURL: URL
+    /// Passes `-v` to long-running commands. Without it `port` still prints each `--->` step,
+    /// just not the full build/configure output.
+    public let verbose: Bool
+
+    public init(executablePath: String = PortClient.defaultExecutablePath,
+                verbose: Bool = UserDefaults.standard.bool(forKey: PortClient.verboseDefaultsKey)) {
         self.executableURL = URL(fileURLWithPath: executablePath)
+        self.verbose = verbose
     }
 
     public var isAvailable: Bool {
@@ -153,7 +161,7 @@ public struct PortClient: Sendable {
             throw PortClientError.invalidName(log.path)
         }
 
-        let command = "\(executableURL.path) -N -v \(action) \(arguments) > \(log.path) 2>&1"
+        let command = "\(executableURL.path) -N \(verbose ? "-v " : "")\(action) \(arguments) > \(log.path) 2>&1"
         let tail = Task.detached { await PortClient.tail(log, onOutput: onOutput) }
         do {
             try await runPrivileged(command)
