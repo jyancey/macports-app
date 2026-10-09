@@ -4,6 +4,7 @@ import PortsKit
 /// App preferences and facts about the local MacPorts installation.
 struct ConfigurationView: View {
     @AppStorage(PortClient.verboseDefaultsKey) private var verbose = false
+    @Environment(ActivityLog.self) private var activity
     @State private var info: MacPortsInfo?
     @State private var failure: String?
 
@@ -33,6 +34,20 @@ struct ConfigurationView: View {
                 } else {
                     ProgressView()
                 }
+            }
+            Section("Troubleshooting") {
+                Button("Diagnose", systemImage: "stethoscope") {
+                    Task {
+                        await activity.run("port diagnose", name: "diagnose") { out in
+                            let text = try await PortClient().diagnose()
+                            out(text.isEmpty ? "No problems found.\n" : text)
+                        }
+                    }
+                }
+                .disabled(activity.isRunning)
+                Text("Runs port diagnose to check your environment for common problems. Results appear in the Activity pane.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
