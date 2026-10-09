@@ -8,7 +8,8 @@ Early development. Currently implemented:
 
 - [x] List installed ports (name, version, revision, variants, active/inactive)
 - [x] Port details (description, homepage, license, dependencies, dependents, installed files)
-- [ ] Search available ports, install/uninstall/upgrade (planned)
+- [x] Search available ports (Available tab: type a term, press Return)
+- [ ] Install/uninstall/upgrade (planned)
 
 ## MacPorts logo
 

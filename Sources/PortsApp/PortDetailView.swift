@@ -36,7 +36,9 @@ final class PortDetailModel {
 }
 
 struct PortDetailView: View {
-    let port: InstalledPort
+    let name: String
+    /// Shown under the name; defaults to the version from `port info`.
+    var subtitle: String?
     @State private var model = PortDetailModel()
 
     var body: some View {
@@ -50,7 +52,7 @@ struct PortDetailView: View {
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .task(id: port.name) { await model.load(port.name) }
+        .task(id: name) { await model.load(name) }
     }
 
     private var header: some View {
@@ -60,9 +62,12 @@ struct PortDetailView: View {
                 .foregroundStyle(.tint)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
-                Text(port.name).font(.title.bold()).textSelection(.enabled)
-                Text("\(port.version)_\(port.revision)" + (port.isActive ? "" : " (inactive)"))
-                    .foregroundStyle(.secondary)
+                Text(name).font(.title.bold()).textSelection(.enabled)
+                if let subtitle {
+                    Text(subtitle).foregroundStyle(.secondary)
+                } else if case .loaded(let info) = model.info {
+                    Text(info.version).foregroundStyle(.secondary)
+                }
             }
         }
     }
