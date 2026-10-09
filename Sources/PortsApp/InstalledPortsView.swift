@@ -28,36 +28,61 @@ struct InstalledPortsView: View {
     @State private var search = ""
     @State private var sortOrder = [KeyPathComparator(\InstalledPort.name)]
 
+    @State private var selection: InstalledPort.ID?
+
     private var filtered: [InstalledPort] {
         let matches = search.isEmpty ? model.ports
             : model.ports.filter { $0.name.localizedCaseInsensitiveContains(search) }
         return matches.sorted(using: sortOrder)
     }
 
+    private var selectedPort: InstalledPort? {
+        model.ports.first { $0.id == selection }
+    }
+
     var body: some View {
-        Group {
-            if let error = model.errorMessage {
-                ContentUnavailableView("Can't read ports", systemImage: "exclamationmark.triangle",
-                                       description: Text(error))
+        NavigationSplitView {
+            list
+                .navigationSplitViewColumnWidth(min: 420, ideal: 520)
+        } detail: {
+            if let port = selectedPort {
+                PortDetailView(port: port)
             } else {
-                Table(filtered, sortOrder: $sortOrder) {
-                    TableColumn("Name", value: \.name)
-                    TableColumn("Version", value: \.version)
-                    TableColumn("Revision") { Text("\($0.revision)") }
-                    TableColumn("Variants") { Text($0.variants.map { "+" + $0 }.joined(separator: " ")) }
-                    TableColumn("Status") { Text($0.isActive ? "Active" : "Inactive")
-                        .foregroundStyle($0.isActive ? .primary : .secondary) }
+                ContentUnavailableView {
+                    Text("Select a port").font(.title2)
+                } description: {
+                    Text("Choose an installed port to see its details.")
+                } actions: {
+                    MacPortsLogo(size: 64)
                 }
             }
         }
-        .searchable(text: $search, prompt: "Filter installed ports")
         .navigationTitle("Installed Ports")
         .navigationSubtitle("\(filtered.count) of \(model.ports.count)")
         .toolbar {
-            Button("Refresh", systemImage: "arrow.clockwise") { Task { await model.load() } }
-                .disabled(model.isLoading)
+            ToolbarItem(placement: .navigation) { MacPortsLogo(size: 22) }
+            ToolbarItem {
+                Button("Refresh", systemImage: "arrow.clockwise") { Task { await model.load() } }
+                    .disabled(model.isLoading)
+            }
         }
-        .overlay { if model.isLoading && model.ports.isEmpty { ProgressView() } }
         .task { await model.load() }
+    }
+
+    @ViewBuilder private var list: some View {
+        if let error = model.errorMessage {
+            ContentUnavailableView("Can't read ports", systemImage: "exclamationmark.triangle",
+                                   description: Text(error))
+        } else {
+            Table(filtered, selection: $selection, sortOrder: $sortOrder) {
+                TableColumn("Name", value: \.name)
+                TableColumn("Version", value: \.version)
+                TableColumn("Variants") { Text($0.variants.map { "+" + $0 }.joined(separator: " ")) }
+                TableColumn("Status") { Text($0.isActive ? "Active" : "Inactive")
+                    .foregroundStyle($0.isActive ? .primary : .secondary) }
+            }
+            .searchable(text: $search, prompt: "Filter installed ports")
+            .overlay { if model.isLoading && model.ports.isEmpty { ProgressView() } }
+        }
     }
 }

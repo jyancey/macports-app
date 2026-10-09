@@ -15,7 +15,7 @@ struct PortsApp: App {
     var body: some Scene {
         WindowGroup("Ports") {
             InstalledPortsView()
-                .frame(minWidth: 600, minHeight: 400)
+                .frame(minWidth: 900, minHeight: 500)
         }
     }
 }

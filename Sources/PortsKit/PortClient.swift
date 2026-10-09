@@ -3,9 +3,12 @@ import Foundation
 public enum PortClientError: LocalizedError {
     case notInstalled(String)
     case commandFailed(status: Int32, stderr: String)
+    case unparseable(String)
 
     public var errorDescription: String? {
         switch self {
+        case .unparseable(let name):
+            return "Couldn't read information for \(name)."
         case .notInstalled(let path):
             return "MacPorts was not found at \(path). Install it from macports.org."
         case .commandFailed(let status, let stderr):
@@ -31,6 +34,24 @@ public struct PortClient: Sendable {
     public func installedPorts() async throws -> [InstalledPort] {
         let output = try await run(["-q", "installed"])
         return PortListParser.parseInstalled(output)
+    }
+
+    public func info(for name: String) async throws -> PortInfo {
+        let output = try await run(["-q", "info", "--line"] + PortInfoParser.fieldFlags + [name])
+        guard let info = PortInfoParser.parse(output) else {
+            throw PortClientError.unparseable(name)
+        }
+        return info
+    }
+
+    /// Files installed by the port (empty if the port isn't installed).
+    public func contents(of name: String) async throws -> [String] {
+        PortInfoParser.parseFileList(try await run(["-q", "contents", name]))
+    }
+
+    /// Installed ports that depend on the given port.
+    public func dependents(of name: String) async throws -> [String] {
+        PortInfoParser.parseDependents(try await run(["-q", "dependents", name]))
     }
 
     func run(_ arguments: [String]) async throws -> String {

@@ -7,7 +7,14 @@ A native macOS GUI for [MacPorts](https://www.macports.org). It sits on top of a
 Early development. Currently implemented:
 
 - [x] List installed ports (name, version, revision, variants, active/inactive)
-- [ ] Port details, search, install/uninstall/upgrade (planned)
+- [x] Port details (description, homepage, license, dependencies, dependents, installed files)
+- [ ] Search available ports, install/uninstall/upgrade (planned)
+
+## MacPorts logo
+
+The app shows the MacPorts logo in the toolbar and the empty state. The official logo isn't bundled;
+drop it in as `Sources/PortsApp/Resources/MacPortsLogo.svg` (or `.pdf` / `.png`) and rebuild.
+Until then a placeholder symbol is shown.
 
 ## Requirements
 
