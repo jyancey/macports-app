@@ -139,6 +139,16 @@ public struct PortClient: Sendable {
         try await runStreaming(action: "uninstall", name: "inactive", onOutput: onOutput)
     }
 
+    /// Updates MacPorts itself and syncs the ports tree (`port selfupdate`).
+    public func selfupdate(onOutput: @escaping @MainActor @Sendable (String) -> Void) async throws {
+        try await runStreaming(action: "selfupdate", arguments: "", onOutput: onOutput)
+    }
+
+    /// Syncs the ports tree only, without updating MacPorts (`port sync`).
+    public func sync(onOutput: @escaping @MainActor @Sendable (String) -> Void) async throws {
+        try await runStreaming(action: "sync", arguments: "", onOutput: onOutput)
+    }
+
     private func runStreaming(action: String, name: String,
                               onOutput: @escaping @MainActor @Sendable (String) -> Void) async throws {
         guard PortClient.isValidPortName(name) else { throw PortClientError.invalidName(name) }

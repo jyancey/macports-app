@@ -35,6 +35,21 @@ struct ConfigurationView: View {
                     ProgressView()
                 }
             }
+            Section("Maintenance") {
+                HStack {
+                    Button("Self-update", systemImage: "arrow.triangle.2.circlepath") {
+                        runMaintenance("sudo port selfupdate", name: "selfupdate") { try await $0.selfupdate(onOutput: $1) }
+                    }
+                    Button("Sync", systemImage: "arrow.down.circle") {
+                        runMaintenance("sudo port sync", name: "sync") { try await $0.sync(onOutput: $1) }
+                    }
+                }
+                .disabled(activity.isRunning)
+                Text("Self-update upgrades MacPorts itself and refreshes the ports tree. "
+                     + "Sync refreshes the ports tree only. Both ask for your administrator password.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Section("Troubleshooting") {
                 Button("Diagnose", systemImage: "stethoscope") {
                     Task {
@@ -51,9 +66,21 @@ struct ConfigurationView: View {
             }
         }
         .formStyle(.grouped)
-        .task {
-            do { info = try await PortClient().macPortsInfo() }
-            catch { failure = error.localizedDescription }
+        .task { await loadInfo() }
+    }
+
+    private func loadInfo() async {
+        do { info = try await PortClient().macPortsInfo(); failure = nil }
+        catch { failure = error.localizedDescription }
+    }
+
+    private func runMaintenance(
+        _ title: String, name: String,
+        work: @escaping @Sendable (PortClient, @escaping @MainActor @Sendable (String) -> Void) async throws -> Void
+    ) {
+        Task {
+            await activity.run(title, name: name) { out in try await work(PortClient(), out) }
+            await loadInfo()
         }
     }
 
