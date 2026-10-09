@@ -5,6 +5,8 @@ import PortsKit
 struct ConfigurationView: View {
     @AppStorage(PortClient.verboseDefaultsKey) private var verbose = false
     @Environment(ActivityLog.self) private var activity
+    @AppStorage(PortClient.executablePathDefaultsKey) private var portPath = ""
+    @State private var pathDraft = ""
     @State private var info: MacPortsInfo?
     @State private var failure: String?
 
@@ -18,9 +20,9 @@ struct ConfigurationView: View {
                     .foregroundStyle(.secondary)
             }
             Section("MacPorts") {
+                pathEditor
                 if let info {
                     row("Version", info.version)
-                    row("Executable", info.executablePath)
                     row("Prefix", info.prefix)
                     row("Data directory", info.dataPath)
                     row("Applications", info.applicationsDir)
@@ -66,7 +68,60 @@ struct ConfigurationView: View {
             }
         }
         .formStyle(.grouped)
-        .task { await loadInfo() }
+        .task {
+            pathDraft = PortClient.configuredExecutablePath
+            await loadInfo()
+        }
+    }
+
+    private var draftProblem: String? {
+        PortClient.problem(withExecutablePath: pathDraft.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    private var pathEditor: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            LabeledContent("port executable") {
+                HStack {
+                    TextField("", text: $pathDraft, prompt: Text(PortClient.defaultExecutablePath))
+                        .textFieldStyle(.roundedBorder)
+                        .autocorrectionDisabled()
+                        .onSubmit(applyPath)
+                    Button("Choose…", action: choosePath)
+                    Button("Apply", action: applyPath)
+                        .disabled(draftProblem != nil
+                                  || pathDraft.trimmingCharacters(in: .whitespacesAndNewlines) == PortClient.configuredExecutablePath)
+                    Button("Reset") {
+                        portPath = ""
+                        pathDraft = PortClient.defaultExecutablePath
+                        Task { await loadInfo() }
+                    }
+                    .disabled(portPath.isEmpty)
+                }
+            }
+            if let problem = draftProblem {
+                Label(problem, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption).foregroundStyle(.orange)
+            } else {
+                Text("Point this at a MacPorts installed outside /opt/local. Takes effect immediately.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func applyPath() {
+        let value = pathDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard PortClient.problem(withExecutablePath: value) == nil else { return }
+        portPath = value == PortClient.defaultExecutablePath ? "" : value
+        Task { await loadInfo() }
+    }
+
+    private func choosePath() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose the MacPorts port executable"
+        if panel.runModal() == .OK, let url = panel.url { pathDraft = url.path }
     }
 
     private func loadInfo() async {

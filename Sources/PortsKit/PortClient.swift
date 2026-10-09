@@ -33,12 +33,35 @@ public struct PortClient: Sendable {
     /// UserDefaults key for the "verbose output" preference.
     public static let verboseDefaultsKey = "verboseOutput"
 
+    /// UserDefaults key for a custom `port` executable path. Empty or missing means the default.
+    public static let executablePathDefaultsKey = "portExecutablePath"
+
+    public static var configuredExecutablePath: String {
+        let value = UserDefaults.standard.string(forKey: executablePathDefaultsKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return value.isEmpty ? defaultExecutablePath : value
+    }
+
+    /// Returns a problem description for a candidate `port` path, or nil if it is usable.
+    public static func problem(withExecutablePath path: String) -> String? {
+        guard isSafePath(path) else {
+            return "Use an absolute path with only letters, numbers and / . _ -"
+        }
+        guard path.hasPrefix("/") else { return "The path must be absolute." }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), !isDirectory.boolValue else {
+            return "No file exists at this path."
+        }
+        guard FileManager.default.isExecutableFile(atPath: path) else { return "The file is not executable." }
+        return nil
+    }
+
     public let executableURL: URL
     /// Passes `-v` to long-running commands. Without it `port` still prints each `--->` step,
     /// just not the full build/configure output.
     public let verbose: Bool
 
-    public init(executablePath: String = PortClient.defaultExecutablePath,
+    public init(executablePath: String = PortClient.configuredExecutablePath,
                 verbose: Bool = UserDefaults.standard.bool(forKey: PortClient.verboseDefaultsKey)) {
         self.executableURL = URL(fileURLWithPath: executablePath)
         self.verbose = verbose
@@ -159,6 +182,9 @@ public struct PortClient: Sendable {
     private func runStreaming(action: String, arguments: String,
                               onOutput: @escaping @MainActor @Sendable (String) -> Void) async throws {
         guard isAvailable else { throw PortClientError.notInstalled(executableURL.path) }
+        guard PortClient.isSafePath(executableURL.path) else {
+            throw PortClientError.invalidName(executableURL.path)
+        }
 
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("ports-app-\(UUID().uuidString)", isDirectory: true)
