@@ -12,9 +12,8 @@ Early development. Currently implemented:
 
 ## MacPorts logo
 
-The app shows the MacPorts logo in the toolbar and the empty state. The official logo isn't bundled;
-drop it in as `Sources/PortsApp/Resources/MacPortsLogo.svg` (or `.pdf` / `.png`) and rebuild.
-Until then a placeholder symbol is shown.
+The app shows the MacPorts logo in the toolbar and the empty state, loaded from
+`Sources/PortsApp/Resources/MacPortsLogo.svg` (`.pdf` / `.png` also work).
 
 ## Requirements
 

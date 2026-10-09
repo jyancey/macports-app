@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// The MacPorts logo, loaded from the app bundle's resources.
-/// Drop the official logo into `Sources/PortsApp/Resources/` as `MacPortsLogo.png`,
-/// `.pdf` or `.svg`; until then an SF Symbol stands in.
+/// Loads `MacPortsLogo.svg` (or `.pdf` / `.png`) from `Sources/PortsApp/Resources/`;
+/// an SF Symbol stands in if none is found. `size` is the height; width follows the aspect ratio.
 struct MacPortsLogo: View {
     var size: CGFloat = 24
 
@@ -25,7 +25,7 @@ struct MacPortsLogo: View {
                     .foregroundStyle(.tint)
             }
         }
-        .frame(width: size, height: size)
+        .frame(height: size)
         .accessibilityLabel("MacPorts")
     }
 }
