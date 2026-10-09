@@ -31,6 +31,10 @@ import Testing
         #expect(PortInfoParser.parse("") == nil)
     }
 
+    @Test func parsesNames() {
+        #expect(PortInfoParser.parseNames("zlib\n  a\nzlib\nno match here\n") == ["a", "zlib"])
+    }
+
     @Test func parsesFilesAndDependents() {
         #expect(PortInfoParser.parseFileList("  /opt/local/a\n  /opt/local/b\n") == ["/opt/local/a", "/opt/local/b"])
         #expect(PortInfoParser.parseDependents("clang-23\ngcc15\n") == ["clang-23", "gcc15"])

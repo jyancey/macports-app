@@ -77,4 +77,9 @@ public enum PortInfoParser {
     public static func parseDependents(_ output: String) -> [String] {
         parseFileList(output).filter { !$0.contains(" ") }
     }
+
+    /// One port name per line, de-duplicated and sorted.
+    public static func parseNames(_ output: String) -> [String] {
+        Array(Set(parseDependents(output))).sorted()
+    }
 }

@@ -36,6 +36,13 @@ public struct PortClient: Sendable {
         return PortListParser.parseInstalled(output)
     }
 
+    /// Names of available ports whose name or description matches `term`.
+    public func search(_ term: String) async throws -> [String] {
+        let term = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !term.isEmpty else { return [] }
+        return PortInfoParser.parseNames(try await run(["-q", "search", "--line", "--", term]))
+    }
+
     public func info(for name: String) async throws -> PortInfo {
         let output = try await run(["-q", "info", "--line"] + PortInfoParser.fieldFlags + [name])
         guard let info = PortInfoParser.parse(output) else {
