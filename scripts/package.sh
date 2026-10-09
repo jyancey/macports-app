@@ -42,4 +42,8 @@ codesign --force --deep --sign - "$APP"
 codesign --verify --deep --strict "$APP"
 
 ditto -c -k --keepParent "$APP" "dist/Ports-${VERSION}.zip"
-echo "Built $APP and dist/Ports-${VERSION}.zip"
+# Installer package: installs Ports.app into /Applications (unsigned; sign with a Developer ID Installer cert for distribution).
+pkgbuild --component "$APP" --install-location /Applications \
+    --identifier com.example.ports --version "$VERSION" "dist/Ports-${VERSION}.pkg"
+
+echo "Built $APP, dist/Ports-${VERSION}.zip and dist/Ports-${VERSION}.pkg"
