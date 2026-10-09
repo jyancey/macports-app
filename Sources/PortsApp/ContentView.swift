@@ -148,7 +148,7 @@ struct ContentView: View {
     private var upgradeAllButton: some View {
         Button("Upgrade All", systemImage: "arrow.up.circle") {
             Task {
-                let ok = await activity.run("sudo port upgrade outdated", name: "outdated") { out in
+                await activity.run("sudo port upgrade outdated", name: "outdated") { out in
                     try await PortClient().upgradeAll(onOutput: out)
                 }
                 await refreshAll()
