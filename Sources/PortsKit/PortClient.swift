@@ -90,6 +90,22 @@ public struct PortClient: Sendable {
         try await runStreaming(action: "uninstall", name: name, onOutput: onOutput)
     }
 
+    /// Ports with a newer version available.
+    public func outdated() async throws -> [OutdatedPort] {
+        OutdatedParser.parse(try await run(["-q", "outdated"]))
+    }
+
+    /// Upgrades one port (and whatever it needs).
+    public func upgrade(_ name: String,
+                        onOutput: @escaping @MainActor @Sendable (String) -> Void) async throws {
+        try await runStreaming(action: "upgrade", name: name, onOutput: onOutput)
+    }
+
+    /// Upgrades every outdated port.
+    public func upgradeAll(onOutput: @escaping @MainActor @Sendable (String) -> Void) async throws {
+        try await runStreaming(action: "upgrade", name: "outdated", onOutput: onOutput)
+    }
+
     private func runStreaming(action: String, name: String,
                               onOutput: @escaping @MainActor @Sendable (String) -> Void) async throws {
         guard isAvailable else { throw PortClientError.notInstalled(executableURL.path) }

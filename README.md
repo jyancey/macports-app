@@ -13,7 +13,7 @@ Early development. Currently implemented:
 - [x] Live activity log (bottom panel, toggle from the toolbar) streaming install output
 - [x] Sidebar layout (Installed / Available), ready for more tabs
 - [x] Uninstall an installed port (with confirmation)
-- [ ] Upgrade (planned)
+- [x] Outdated tab: list outdated ports, upgrade one or all (asks for your administrator password)
 
 ## MacPorts logo
 
