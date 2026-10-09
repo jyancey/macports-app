@@ -173,7 +173,7 @@ struct ContentView: View {
             }
             .disabled(activity.isRunning || inactiveSelection == nil)
             .help("Remove the selected inactive version")
-            Button("Remove All", systemImage: "trash.fill") {
+            Button("Remove All", systemImage: "sparkles") {
                 Task {
                     _ = await activity.run("sudo port uninstall inactive", name: "inactive") { out in
                         try await PortClient().uninstallInactive(onOutput: out)
