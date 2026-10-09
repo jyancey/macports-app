@@ -9,6 +9,9 @@ final class ActivityLog {
     private(set) var isRunning = false
     private(set) var runningName: String?
     var isVisible = false
+    /// Live status of each port the current run is touching, including dependencies.
+    private(set) var progress: [String: PortProgress] = [:]
+    private var parser = InstallProgressParser()
 
     private static let maxLines = 5000
 
@@ -22,7 +25,9 @@ final class ActivityLog {
         runningName = name
         isVisible = true
         append("$ \(title)\n")
-        defer { isRunning = false; runningName = nil }
+        parser = InstallProgressParser()
+        progress = [:]
+        defer { isRunning = false; runningName = nil; progress = [:] }
         do {
             try await work { [weak self] text in self?.append(text) }
             append("✓ Finished\n\n")
@@ -38,6 +43,10 @@ final class ActivityLog {
     func clear() { lines.removeAll() }
 
     private func append(_ text: String) {
+        if isRunning {
+            parser.consume(text)
+            if parser.statuses != progress { progress = parser.statuses }
+        }
         var new = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         if text.hasSuffix("\n") { new.removeLast() }
         lines.append(contentsOf: new)

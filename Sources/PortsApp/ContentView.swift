@@ -300,11 +300,28 @@ struct ContentView: View {
             Table(rows, selection: $searchSelection) {
                 TableColumn("Name", value: \.name)
                 TableColumn("Status") { row in
-                    Label(row.isInstalled ? "Installed" : "Not installed",
-                          systemImage: row.isInstalled ? "shippingbox.fill" : "shippingbox")
-                        .foregroundStyle(.secondary)
+                    searchStatus(row)
                 }
             }
+        }
+    }
+
+    @ViewBuilder private func searchStatus(_ row: SearchRow) -> some View {
+        switch activity.progress[row.name] {
+        case .working(let phase):
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text(phase + "…")
+            }
+            .foregroundStyle(.tint)
+        case .queued:
+            Label("Waiting…", systemImage: "clock").foregroundStyle(.secondary)
+        case .done:
+            Label("Installed", systemImage: "shippingbox.fill").foregroundStyle(.secondary)
+        case nil:
+            Label(row.isInstalled ? "Installed" : "Not installed",
+                  systemImage: row.isInstalled ? "shippingbox.fill" : "shippingbox")
+                .foregroundStyle(.secondary)
         }
     }
 

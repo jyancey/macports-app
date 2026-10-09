@@ -17,6 +17,7 @@ Early development. Currently implemented:
 - [x] Inactive tab: list old versions left behind by upgrades; remove one or all (asks for your administrator password)
 - [x] Variant selection on install (Install opens a sheet listing the port's variants)
 - [x] Pre-built binary indicator (detail pane and install sheet; warns that non-default variants build from source)
+- [x] Live install status in the Available table (Downloading…, Building…, dependencies included)
 
 ## MacPorts logo
 
