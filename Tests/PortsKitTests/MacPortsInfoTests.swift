@@ -18,3 +18,16 @@ import Testing
         #expect(s == ["file:///a", "rsync://h/p"])
     }
 }
+
+@Suite struct ExecutablePathTests {
+    @Test func rejectsUnsafeAndMissingPaths() {
+        #expect(PortClient.problem(withExecutablePath: "/opt/local/bin/port; rm -rf ~") != nil)
+        #expect(PortClient.problem(withExecutablePath: "relative/port") != nil)
+        #expect(PortClient.problem(withExecutablePath: "/nonexistent/port") != nil)
+        #expect(PortClient.problem(withExecutablePath: "/opt/local/bin") != nil)
+    }
+
+    @Test func acceptsAnExecutable() {
+        #expect(PortClient.problem(withExecutablePath: "/bin/ls") == nil)
+    }
+}

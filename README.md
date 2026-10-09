@@ -23,6 +23,7 @@ Early development. Currently implemented:
 - [x] Resizable Activity pane (height is remembered)
 - [x] MacPorts info in the Configuration tab (version, prefix, paths, installed count, sources)
 - [x] Diagnose button (`port diagnose`) in the Configuration tab
+- [x] Custom `port` executable path in the Configuration tab (for MacPorts installed outside /opt/local)
 - [x] Help menu with a quick guide and MacPorts links
 
 ## MacPorts logo
