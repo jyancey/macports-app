@@ -1,12 +1,12 @@
 #!/bin/bash
-# Builds a release Ports.app and a zip of it in dist/.
+# Builds a release MacPorts.app and a zip of it in dist/.
 # Usage: scripts/package.sh [version]   (defaults to the latest git tag, or 0.1.0)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 VERSION="${1:-$(git describe --tags --abbrev=0 2>/dev/null || echo 0.1.0)}"
 VERSION="${VERSION#v}"
-APP="dist/Ports.app"
+APP="dist/MacPorts.app"
 
 swift build -c release --arch arm64 --arch x86_64
 BIN_DIR="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)"
@@ -22,8 +22,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key><string>Ports</string>
-    <key>CFBundleDisplayName</key><string>Ports</string>
+    <key>CFBundleName</key><string>MacPorts</string>
+    <key>CFBundleDisplayName</key><string>MacPorts</string>
     <key>CFBundleIdentifier</key><string>com.example.ports</string>
     <key>CFBundleExecutable</key><string>PortsApp</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
@@ -41,5 +41,9 @@ PLIST
 codesign --force --deep --sign - "$APP"
 codesign --verify --deep --strict "$APP"
 
-ditto -c -k --keepParent "$APP" "dist/Ports-${VERSION}.zip"
-echo "Built $APP and dist/Ports-${VERSION}.zip"
+ditto -c -k --keepParent "$APP" "dist/MacPorts-${VERSION}.zip"
+# Installer package: installs MacPorts.app into /Applications (unsigned; sign with a Developer ID Installer cert for distribution).
+pkgbuild --component "$APP" --install-location /Applications \
+    --identifier com.example.ports --version "$VERSION" "dist/MacPorts-${VERSION}.pkg"
+
+echo "Built $APP, dist/MacPorts-${VERSION}.zip and dist/MacPorts-${VERSION}.pkg"

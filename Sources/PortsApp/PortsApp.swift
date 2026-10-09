@@ -9,7 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 enum AppInfo {
-    static let name = "PortsApp"
+    static let name = "MacPorts"
     static let version = "0.1.0"
     static let build = "1"
     static let author = "John Yancey"
@@ -23,7 +23,7 @@ struct PortsApp: App {
     @Environment(\.openWindow) private var openWindow
 
     var body: some Scene {
-        WindowGroup("Ports") {
+        WindowGroup(AppInfo.name) {
             ContentView()
                 .environment(activity)
                 .frame(minWidth: 900, minHeight: 500)
