@@ -74,7 +74,8 @@ final class OutdatedModel {
 
 /// Sidebar destinations. Add a case here to add a tab.
 enum BrowseMode: String, CaseIterable, Identifiable {
-    case installed = "Installed", available = "Available", outdated = "Outdated", inactive = "Inactive"
+    case installed = "Installed", available = "Available", outdated = "Outdated", inactive = "Inactive",
+         configuration = "Configuration"
     var id: Self { self }
 
     var symbol: String {
@@ -83,6 +84,7 @@ enum BrowseMode: String, CaseIterable, Identifiable {
         case .available: "magnifyingglass"
         case .outdated: "arrow.triangle.2.circlepath"
         case .inactive: "archivebox"
+        case .configuration: "gearshape"
         }
     }
 }
@@ -219,6 +221,9 @@ struct ContentView: View {
                 PortDetailView(name: port.name,
                                subtitle: "\(port.version)_\(port.revision)" + (port.isActive ? "" : " (inactive)"),
                                onUninstalled: { await model.load() })
+            } else if currentMode == .configuration {
+                ContentUnavailableView("Configuration", systemImage: "gearshape",
+                                       description: Text("Settings apply to the next command you run."))
             } else {
                 ContentUnavailableView {
                     Text("Select a port").font(.title2)
@@ -230,7 +235,7 @@ struct ContentView: View {
                 }
             }
         }
-        .navigationTitle("\(currentMode.rawValue) Ports")
+        .navigationTitle(currentMode == .configuration ? "Configuration" : "\(currentMode.rawValue) Ports")
         .navigationSubtitle(subtitle)
         .toolbar {
             ToolbarItem {
@@ -252,16 +257,27 @@ struct ContentView: View {
         case .available: "\(searchModel.results.count) results"
         case .outdated: "\(outdatedModel.ports.count) outdated"
         case .inactive: "\(inactivePorts.count) inactive"
+        case .configuration: "Settings"
         }
     }
 
-    private var list: some View {
+    @ViewBuilder private var list: some View {
+        if currentMode == .configuration {
+            ConfigurationView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            searchableList
+        }
+    }
+
+    private var searchableList: some View {
         Group {
             switch currentMode {
             case .installed: installedList
             case .available: searchList
             case .outdated: outdatedList
             case .inactive: inactiveList
+            case .configuration: EmptyView()
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

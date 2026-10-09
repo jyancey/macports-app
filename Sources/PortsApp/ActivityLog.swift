@@ -60,7 +60,6 @@ final class ActivityLog {
 
 struct ActivityLogView: View {
     @Environment(ActivityLog.self) private var log
-    @AppStorage(PortClient.verboseDefaultsKey) private var verbose = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -72,9 +71,6 @@ struct ActivityLogView: View {
                     .frame(width: 10, height: 10)
                     .help(log.isRunning ? "Busy" : log.lastRunFailed ? "Last command failed" : "Ready")
                 Spacer()
-                Toggle("Verbose", isOn: $verbose)
-                    .toggleStyle(.checkbox)
-                    .help("Show full build output (-v). Takes effect on the next command.")
                 Button("Clear", systemImage: "trash") { log.clear() }
                     .disabled(log.lines.isEmpty || log.isRunning)
                 Button("Hide", systemImage: "chevron.down") { log.isVisible = false }
