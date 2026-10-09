@@ -20,6 +20,10 @@ Early development. Currently implemented:
 - [x] Live install status in the Available table (Downloading…, Building…, dependencies included)
 - [x] Self-update and Sync buttons in the Configuration tab (ask for your administrator password)
 - [x] Configuration tab with a verbose output setting (off by default)
+- [x] Resizable Activity pane (height is remembered)
+- [x] MacPorts info in the Configuration tab (version, prefix, paths, installed count, sources)
+- [x] Diagnose button (`port diagnose`) in the Configuration tab
+- [x] Help menu with a quick guide and MacPorts links
 
 ## MacPorts logo
 
