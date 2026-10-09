@@ -58,6 +58,7 @@ struct PortDetailView: View {
     /// Called after a successful uninstall.
     var onUninstalled: () async -> Void = {}
     @State private var confirmUninstall = false
+    @State private var checkingVariants = false
     @State private var showInstallOptions = false
     @Environment(ActivityLog.self) private var activity
     @State private var model = PortDetailModel()
@@ -163,9 +164,19 @@ struct PortDetailView: View {
                 Text("Installing…").foregroundStyle(.secondary)
             }
         } else {
-            Button("Install", systemImage: "arrow.down.circle") { showInstallOptions = true }
+            Button("Install", systemImage: "arrow.down.circle") { startInstall() }
             .buttonStyle(.borderedProminent)
-            .disabled(activity.isRunning)
+            .disabled(activity.isRunning || checkingVariants)
+        }
+    }
+
+    /// Installs straight away when the port has no variants; otherwise asks which to use.
+    private func startInstall() {
+        checkingVariants = true
+        Task {
+            let found = try? await PortClient().variants(of: name)
+            checkingVariants = false
+            if let found, found.isEmpty { install(flags: []) } else { showInstallOptions = true }
         }
     }
 
