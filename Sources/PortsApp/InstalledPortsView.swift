@@ -111,22 +111,23 @@ struct InstalledPortsView: View {
     }
 
     private var list: some View {
-        VStack(spacing: 0) {
+        Group {
+            if mode == .installed { installedList } else { searchList }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .safeAreaInset(edge: .top, spacing: 0) {
             Picker("Mode", selection: $mode) {
                 ForEach(BrowseMode.allCases) { Text($0.rawValue).tag($0) }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
             .padding(8)
-            Group {
-                if mode == .installed { installedList } else { searchList }
-            }
-            .searchable(text: $search,
-                        prompt: mode == .installed ? "Filter installed ports" : "Search available ports")
-            .onSubmit(of: .search) {
-                guard mode == .available else { return }
-                Task { await searchModel.search(search) }
-            }
+        }
+        .searchable(text: $search,
+                    prompt: mode == .installed ? "Filter installed ports" : "Search available ports")
+        .onSubmit(of: .search) {
+            guard mode == .available else { return }
+            Task { await searchModel.search(search) }
         }
     }
 
