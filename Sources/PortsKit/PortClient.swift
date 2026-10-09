@@ -30,10 +30,18 @@ public enum PortClientError: LocalizedError {
 public struct PortClient: Sendable {
     public static let defaultExecutablePath = "/opt/local/bin/port"
 
-    public let executableURL: URL
+    /// UserDefaults key for the "verbose output" preference.
+    public static let verboseDefaultsKey = "verboseOutput"
 
-    public init(executablePath: String = PortClient.defaultExecutablePath) {
+    public let executableURL: URL
+    /// Passes `-v` to long-running commands. Without it `port` still prints each `--->` step,
+    /// just not the full build/configure output.
+    public let verbose: Bool
+
+    public init(executablePath: String = PortClient.defaultExecutablePath,
+                verbose: Bool = UserDefaults.standard.bool(forKey: PortClient.verboseDefaultsKey)) {
         self.executableURL = URL(fileURLWithPath: executablePath)
+        self.verbose = verbose
     }
 
     public var isAvailable: Bool {
@@ -79,9 +87,20 @@ public struct PortClient: Sendable {
     /// `port install` needs root, so it runs through the standard macOS administrator password
     /// prompt. That prompt can't stream output, so the command writes to a private log file
     /// that is tailed while it runs.
-    public func install(_ name: String,
+    public func install(_ name: String, variantFlags: [String] = [],
                         onOutput: @escaping @MainActor @Sendable (String) -> Void) async throws {
-        try await runStreaming(action: "install", name: name, onOutput: onOutput)
+        guard PortClient.isValidPortName(name) else { throw PortClientError.invalidName(name) }
+        for flag in variantFlags where !PortClient.isValidVariantFlag(flag) {
+            throw PortClientError.invalidName(flag)
+        }
+        try await runStreaming(action: "install", arguments: ([name] + variantFlags).joined(separator: " "),
+                               onOutput: onOutput)
+    }
+
+    /// Variants the port offers, with defaults and requirements.
+    public func variants(of name: String) async throws -> [PortVariant] {
+        guard PortClient.isValidPortName(name) else { throw PortClientError.invalidName(name) }
+        return PortVariantParser.parse(try await run(["-q", "variants", name]))
     }
 
     /// Uninstalls a port (fails, with `port`'s explanation in the output, if other ports depend on it).
@@ -142,7 +161,7 @@ public struct PortClient: Sendable {
             throw PortClientError.invalidName(log.path)
         }
 
-        let command = "\(executableURL.path) -N -v \(action) \(arguments) > \(log.path) 2>&1"
+        let command = "\(executableURL.path) -N \(verbose ? "-v " : "")\(action) \(arguments) > \(log.path) 2>&1"
         let tail = Task.detached { await PortClient.tail(log, onOutput: onOutput) }
         do {
             try await runPrivileged(command)
@@ -157,6 +176,11 @@ public struct PortClient: Sendable {
 
     static func isValidVersionSpec(_ spec: String) -> Bool {
         spec.hasPrefix("@") && spec.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || "@._+-".contains($0)) }
+    }
+
+    static func isValidVariantFlag(_ flag: String) -> Bool {
+        guard let sign = flag.first, sign == "+" || sign == "-" else { return false }
+        return isValidPortName(String(flag.dropFirst()).replacingOccurrences(of: ".", with: "_"))
     }
 
     static func isValidPortName(_ name: String) -> Bool {
@@ -217,6 +241,25 @@ public struct PortClient: Sendable {
                 if message.contains("-128") { throw PortClientError.cancelled }
                 throw PortClientError.commandFailed(status: process.terminationStatus, stderr: message)
             }
+        }.value
+    }
+
+    /// Runs `port diagnose` (no privileges needed) and returns its combined output.
+    /// Diagnose reports problems as warnings, so a non-zero exit is not treated as failure.
+    public func diagnose() async throws -> String {
+        guard isAvailable else { throw PortClientError.notInstalled(executableURL.path) }
+        let url = executableURL
+        return try await Task.detached {
+            let process = Process()
+            process.executableURL = url
+            process.arguments = ["diagnose", "--quiet"]
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = pipe
+            try process.run()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            return String(decoding: data, as: UTF8.self)
         }.value
     }
 

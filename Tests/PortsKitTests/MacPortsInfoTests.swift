@@ -1,0 +1,20 @@
+import Testing
+@testable import PortsKit
+
+@Suite struct MacPortsInfoTests {
+    @Test func parsesVersion() {
+        #expect(MacPortsInfo.parseVersion("Version: 2.12.6\n") == "2.12.6")
+    }
+
+    @Test func parsesConfIgnoringComments() {
+        let c = MacPortsInfo.parseConf("# x\nprefix \t/opt/local\n\nportdbpath /opt/local/var/macports\n")
+        #expect(c["prefix"] == "/opt/local")
+        #expect(c["portdbpath"] == "/opt/local/var/macports")
+        #expect(c.count == 2)
+    }
+
+    @Test func parsesSources() {
+        let s = MacPortsInfo.parseSources("# c\nfile:///a\nrsync://h/p [default]\n")
+        #expect(s == ["file:///a", "rsync://h/p"])
+    }
+}

@@ -13,6 +13,8 @@ final class PortDetailModel {
     var info: Loadable<PortInfo> = .loading
     var files: Loadable<[String]> = .loading
     var dependents: Loadable<[String]> = .loading
+    /// Whether a pre-built archive exists for the default variants; nil until checked.
+    var binary: BinaryAvailability?
 
     private let client = PortClient()
 
@@ -20,6 +22,7 @@ final class PortDetailModel {
         info = .loading
         files = .loading
         dependents = .loading
+        binary = nil
         async let i = capture { try await self.client.info(for: name) }
         async let f = capture { try await self.client.contents(of: name) }
         async let d = capture { try await self.client.dependents(of: name) }
@@ -28,6 +31,13 @@ final class PortDetailModel {
         info = infoResult
         files = filesResult
         dependents = dependentsResult
+        if case .loaded(let info) = infoResult {
+            let defaults = ((try? await client.variants(of: name)) ?? []).filter(\.isDefault).map(\.name)
+            let result = await BinaryArchive.availability(
+                name: name, version: info.version, revision: info.revision, variants: defaults)
+            guard !Task.isCancelled else { return }
+            binary = result
+        }
     }
 
     private func capture<T: Sendable>(_ work: @Sendable () async throws -> T) async -> Loadable<T> {
@@ -48,6 +58,7 @@ struct PortDetailView: View {
     /// Called after a successful uninstall.
     var onUninstalled: () async -> Void = {}
     @State private var confirmUninstall = false
+    @State private var showInstallOptions = false
     @Environment(ActivityLog.self) private var activity
     @State private var model = PortDetailModel()
 
@@ -63,6 +74,9 @@ struct PortDetailView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .task(id: name) { await model.load(name) }
+        .sheet(isPresented: $showInstallOptions) {
+            InstallOptionsView(name: name) { install(flags: $0) }
+        }
     }
 
     private var header: some View {
@@ -78,6 +92,7 @@ struct PortDetailView: View {
                 } else if case .loaded(let info) = model.info {
                     Text(info.version).foregroundStyle(.secondary)
                 }
+                binaryBadge
             }
             Spacer()
             if isInstalled, let onUpgrade { upgradeControls(onUpgrade) }
@@ -98,9 +113,24 @@ struct PortDetailView: View {
         }
     }
 
+    @ViewBuilder private var binaryBadge: some View {
+        switch model.binary {
+        case .available:
+            Label("Pre-built binary available", systemImage: "checkmark.seal.fill")
+                .font(.caption).foregroundStyle(.green)
+                .help("MacPorts can download a pre-built archive for this Mac instead of compiling.")
+        case .unavailable:
+            Label("Builds from source", systemImage: "hammer")
+                .font(.caption).foregroundStyle(.secondary)
+                .help("No pre-built archive was found for this Mac; installing compiles the port.")
+        default:
+            EmptyView()
+        }
+    }
+
     @ViewBuilder private func upgradeControls(_ done: @escaping () async -> Void) -> some View {
         if activity.runningName != name {
-            Button("Upgrade", systemImage: "arrow.up.circle") {
+            Button("Upgrade", systemImage: "desktopcomputer.and.arrow.down") {
                 Task {
                     let client = PortClient()
                     let ok = await activity.run("sudo port upgrade \(name)", name: name) { out in
@@ -133,20 +163,23 @@ struct PortDetailView: View {
                 Text("Installing…").foregroundStyle(.secondary)
             }
         } else {
-            Button("Install", systemImage: "arrow.down.circle") {
-                Task {
-                    let client = PortClient()
-                    let ok = await activity.run("sudo port install \(name)", name: name) { out in
-                        try await client.install(name, onOutput: out)
-                    }
-                    if ok {
-                        await onInstalled()
-                        await model.load(name)
-                    }
-                }
-            }
+            Button("Install", systemImage: "arrow.down.circle") { showInstallOptions = true }
             .buttonStyle(.borderedProminent)
             .disabled(activity.isRunning)
+        }
+    }
+
+    private func install(flags: [String]) {
+        Task {
+            let client = PortClient()
+            let title = (["sudo port install", name] + flags).joined(separator: " ")
+            let ok = await activity.run(title, name: name) { out in
+                try await client.install(name, variantFlags: flags, onOutput: out)
+            }
+            if ok {
+                await onInstalled()
+                await model.load(name)
+            }
         }
     }
 
@@ -217,5 +250,129 @@ struct PortDetailView: View {
                 Text(value).textSelection(.enabled)
             }
         }
+    }
+}
+
+/// Lets the user choose variants before installing.
+struct InstallOptionsView: View {
+    let name: String
+    let onInstall: ([String]) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var variants: [PortVariant]?
+    @State private var errorMessage: String?
+    @State private var selected: Set<String> = []
+    @State private var info: PortInfo?
+    @State private var binary: BinaryAvailability?
+
+    /// Variant names that the current selection builds with, in the form archives are named.
+    private var activeVariants: [String] {
+        (variants ?? []).map(\.name).filter { selected.contains($0) }
+    }
+
+    private var customized: Bool {
+        !PortVariantParser.flags(selected: selected, from: variants ?? []).isEmpty
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Install \(name)").font(.title2.bold())
+            content
+            buildNotice
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Install") {
+                    onInstall(PortVariantParser.flags(selected: selected, from: variants ?? []))
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+                .disabled(variants == nil && errorMessage == nil)
+            }
+        }
+        .padding(20)
+        .frame(width: 460)
+        .task {
+            do {
+                let found = try await PortClient().variants(of: name)
+                variants = found
+                selected = Set(found.filter(\.isDefault).map(\.name))
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            info = try? await PortClient().info(for: name)
+        }
+        .task(id: activeVariants.joined(separator: "+") + (info?.version ?? "")) {
+            guard let info, variants != nil else { return }
+            binary = nil
+            let result = await BinaryArchive.availability(
+                name: name, version: info.version, revision: info.revision, variants: activeVariants)
+            guard !Task.isCancelled else { return }
+            binary = result
+        }
+    }
+
+    @ViewBuilder private var buildNotice: some View {
+        if variants != nil {
+            if customized {
+                Label("Non-default variants are built from source, which can take a while.",
+                      systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+            } else if binary == .available {
+                Label("A pre-built binary is available, so this installs quickly.",
+                      systemImage: "checkmark.seal.fill").foregroundStyle(.green)
+            } else if binary == .unavailable {
+                Label("No pre-built binary was found for this Mac; it will be built from source.",
+                      systemImage: "hammer").foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder private var content: some View {
+        if let errorMessage {
+            Label(errorMessage, systemImage: "exclamationmark.triangle").foregroundStyle(.secondary)
+        } else if let variants {
+            if variants.isEmpty {
+                Text("This port has no variants.").foregroundStyle(.secondary)
+            } else {
+                Text("Variants").font(.headline)
+                List(variants) { variant in
+                    Toggle(isOn: binding(for: variant)) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("+" + variant.name).monospaced()
+                            if !variant.summary.isEmpty {
+                                Text(variant.summary).font(.caption).foregroundStyle(.secondary)
+                            }
+                            if !variant.requires.isEmpty {
+                                Text("Requires " + variant.requires.joined(separator: ", "))
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            if !variant.conflicts.isEmpty {
+                                Text("Conflicts with " + variant.conflicts.joined(separator: ", "))
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+                .frame(height: 280)
+            }
+        } else {
+            ProgressView().controlSize(.small)
+        }
+    }
+
+    /// Turning a variant on also turns on what it requires and turns off what it conflicts with.
+    private func binding(for variant: PortVariant) -> Binding<Bool> {
+        Binding(
+            get: { selected.contains(variant.name) },
+            set: { on in
+                if on {
+                    selected.insert(variant.name)
+                    selected.formUnion(variant.requires)
+                    selected.subtract(variant.conflicts)
+                } else {
+                    selected.remove(variant.name)
+                }
+            })
     }
 }

@@ -74,7 +74,8 @@ final class OutdatedModel {
 
 /// Sidebar destinations. Add a case here to add a tab.
 enum BrowseMode: String, CaseIterable, Identifiable {
-    case installed = "Installed", available = "Available", outdated = "Outdated", inactive = "Inactive"
+    case installed = "Installed", available = "Available", outdated = "Outdated", inactive = "Inactive",
+         configuration = "Configuration"
     var id: Self { self }
 
     var symbol: String {
@@ -83,6 +84,7 @@ enum BrowseMode: String, CaseIterable, Identifiable {
         case .available: "magnifyingglass"
         case .outdated: "arrow.triangle.2.circlepath"
         case .inactive: "archivebox"
+        case .configuration: "gearshape"
         }
     }
 }
@@ -124,6 +126,9 @@ struct ContentView: View {
         return shown.sorted(using: sortOrder)
     }
 
+    @AppStorage("activityHeight") private var activityHeight: Double = 200
+    @State private var dragStartHeight: Double?
+
     private var currentMode: BrowseMode { mode ?? .installed }
 
     var body: some View {
@@ -131,7 +136,15 @@ struct ContentView: View {
             split
             if activity.isVisible {
                 Divider()
-                ActivityLogView()
+                    .overlay(Color.clear.frame(height: 8).contentShape(Rectangle())
+                        .onHover { $0 ? NSCursor.resizeUpDown.push() : NSCursor.pop() }
+                        .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                            .onChanged { v in
+                                if dragStartHeight == nil { dragStartHeight = activityHeight }
+                                activityHeight = min(600, max(80, (dragStartHeight ?? 200) - v.translation.height))
+                            }
+                            .onEnded { _ in dragStartHeight = nil }))
+                ActivityLogView(height: activityHeight)
             }
         }
         .task { await model.load() }
@@ -219,6 +232,9 @@ struct ContentView: View {
                 PortDetailView(name: port.name,
                                subtitle: "\(port.version)_\(port.revision)" + (port.isActive ? "" : " (inactive)"),
                                onUninstalled: { await model.load() })
+            } else if currentMode == .configuration {
+                ContentUnavailableView("Configuration", systemImage: "gearshape",
+                                       description: Text("Settings apply to the next command you run."))
             } else {
                 ContentUnavailableView {
                     Text("Select a port").font(.title2)
@@ -230,7 +246,7 @@ struct ContentView: View {
                 }
             }
         }
-        .navigationTitle("\(currentMode.rawValue) Ports")
+        .navigationTitle(currentMode == .configuration ? "Configuration" : "\(currentMode.rawValue) Ports")
         .navigationSubtitle(subtitle)
         .toolbar {
             ToolbarItem {
@@ -252,16 +268,27 @@ struct ContentView: View {
         case .available: "\(searchModel.results.count) results"
         case .outdated: "\(outdatedModel.ports.count) outdated"
         case .inactive: "\(inactivePorts.count) inactive"
+        case .configuration: "Settings"
         }
     }
 
-    private var list: some View {
+    @ViewBuilder private var list: some View {
+        if currentMode == .configuration {
+            ConfigurationView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            searchableList
+        }
+    }
+
+    private var searchableList: some View {
         Group {
             switch currentMode {
             case .installed: installedList
             case .available: searchList
             case .outdated: outdatedList
             case .inactive: inactiveList
+            case .configuration: EmptyView()
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -300,11 +327,28 @@ struct ContentView: View {
             Table(rows, selection: $searchSelection) {
                 TableColumn("Name", value: \.name)
                 TableColumn("Status") { row in
-                    Label(row.isInstalled ? "Installed" : "Not installed",
-                          systemImage: row.isInstalled ? "shippingbox.fill" : "shippingbox")
-                        .foregroundStyle(.secondary)
+                    searchStatus(row)
                 }
             }
+        }
+    }
+
+    @ViewBuilder private func searchStatus(_ row: SearchRow) -> some View {
+        switch activity.progress[row.name] {
+        case .working(let phase):
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text(phase + "…")
+            }
+            .foregroundStyle(.tint)
+        case .queued:
+            Label("Waiting…", systemImage: "clock").foregroundStyle(.secondary)
+        case .done:
+            Label("Installed", systemImage: "shippingbox.fill").foregroundStyle(.secondary)
+        case nil:
+            Label(row.isInstalled ? "Installed" : "Not installed",
+                  systemImage: row.isInstalled ? "shippingbox.fill" : "shippingbox")
+                .foregroundStyle(.secondary)
         }
     }
 
