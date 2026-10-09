@@ -210,6 +210,26 @@ public struct PortClient: Sendable {
         await tail.value
     }
 
+    /// Adds a ports source to sources.conf. The edited file is staged in a private temp
+    /// directory and copied into place with administrator privileges.
+    public func addSource(_ url: String, to confPath: String) async throws {
+        guard MacPortsInfo.isValidSourceURL(url) else { throw PortClientError.invalidName(url) }
+        guard PortClient.isSafePath(confPath) else { throw PortClientError.invalidName(confPath) }
+        let current = (try? String(contentsOfFile: confPath, encoding: .utf8)) ?? ""
+        guard let updated = MacPortsInfo.addingSource(url, to: current) else {
+            throw PortClientError.commandFailed(status: 1, stderr: "\(url) is already a source.")
+        }
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ports-app-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let staged = directory.appendingPathComponent("sources.conf")
+        try updated.write(to: staged, atomically: true, encoding: .utf8)
+        guard PortClient.isSafePath(staged.path) else { throw PortClientError.invalidName(staged.path) }
+        try await runPrivileged("/bin/cp \(staged.path) \(confPath)")
+    }
+
     static func isValidVersionSpec(_ spec: String) -> Bool {
         spec.hasPrefix("@") && spec.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || "@._+-".contains($0)) }
     }
