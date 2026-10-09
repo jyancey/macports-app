@@ -74,7 +74,7 @@ final class OutdatedModel {
 
 /// Sidebar destinations. Add a case here to add a tab.
 enum BrowseMode: String, CaseIterable, Identifiable {
-    case installed = "Installed", available = "Available", outdated = "Outdated"
+    case installed = "Installed", available = "Available", outdated = "Outdated", inactive = "Inactive"
     var id: Self { self }
 
     var symbol: String {
@@ -82,6 +82,7 @@ enum BrowseMode: String, CaseIterable, Identifiable {
         case .installed: "checkmark.circle"
         case .available: "magnifyingglass"
         case .outdated: "arrow.triangle.2.circlepath"
+        case .inactive: "archivebox"
         }
     }
 }
@@ -98,6 +99,7 @@ struct ContentView: View {
     @State private var searchModel = SearchModel()
     @State private var outdatedModel = OutdatedModel()
     @State private var outdatedSelection: String?
+    @State private var inactiveSelection: InstalledPort.ID?
     @State private var mode: BrowseMode? = .installed
     @State private var searchSelection: String?
     @State private var search = ""
@@ -114,6 +116,12 @@ struct ContentView: View {
 
     private var selectedPort: InstalledPort? {
         model.ports.first { $0.id == selection }
+    }
+
+    private var inactivePorts: [InstalledPort] {
+        let matches = model.ports.filter { !$0.isActive }
+        let shown = search.isEmpty ? matches : matches.filter { $0.name.localizedCaseInsensitiveContains(search) }
+        return shown.sorted(using: sortOrder)
     }
 
     private var currentMode: BrowseMode { mode ?? .installed }
@@ -150,6 +158,35 @@ struct ContentView: View {
         .help("Upgrade every outdated port")
     }
 
+    private var removeInactiveButtons: some View {
+        Group {
+            Button("Remove Selected", systemImage: "trash") {
+                guard let port = model.ports.first(where: { $0.id == inactiveSelection }) else { return }
+                Task {
+                    _ = await activity.run("sudo port uninstall \(port.name) @\(port.version)_\(port.revision)",
+                                           name: port.name) { out in
+                        try await PortClient().uninstall(port, onOutput: out)
+                    }
+                    inactiveSelection = nil
+                    await model.load()
+                }
+            }
+            .disabled(activity.isRunning || inactiveSelection == nil)
+            .help("Remove the selected inactive version")
+            Button("Remove All", systemImage: "trash.fill") {
+                Task {
+                    _ = await activity.run("sudo port uninstall inactive", name: "inactive") { out in
+                        try await PortClient().uninstallInactive(onOutput: out)
+                    }
+                    inactiveSelection = nil
+                    await model.load()
+                }
+            }
+            .disabled(activity.isRunning || model.ports.allSatisfy(\.isActive))
+            .help("Remove every inactive version")
+        }
+    }
+
     private var split: some View {
         NavigationSplitView {
             List(BrowseMode.allCases, selection: $mode) { item in
@@ -170,6 +207,14 @@ struct ContentView: View {
                                subtitle: "\(port.installedVersion) → \(port.availableVersion)",
                                onUpgrade: { await refreshAll() },
                                onUninstalled: { await refreshAll() })
+            } else if currentMode == .inactive, let port = model.ports.first(where: { $0.id == inactiveSelection }) {
+                ContentUnavailableView {
+                    Label(port.name, systemImage: "archivebox")
+                } description: {
+                    Text("Inactive version \(port.version)_\(port.revision)"
+                         + (port.variants.isEmpty ? "" : " " + port.variants.map { "+" + $0 }.joined())
+                         + ". Remove it to reclaim disk space.")
+                }
             } else if currentMode == .installed, let port = selectedPort {
                 PortDetailView(name: port.name,
                                subtitle: "\(port.version)_\(port.revision)" + (port.isActive ? "" : " (inactive)"),
@@ -194,6 +239,7 @@ struct ContentView: View {
                     .help("Show or hide the activity log")
             }
             if currentMode == .outdated { ToolbarItem { upgradeAllButton } }
+            if currentMode == .inactive { ToolbarItemGroup { removeInactiveButtons } }
             ToolbarItem {
                 Button("Refresh", systemImage: "arrow.clockwise") { Task { await refreshAll() } }
                     .disabled(model.isLoading || outdatedModel.isLoading)
@@ -206,6 +252,7 @@ struct ContentView: View {
         case .installed: "\(filtered.count) of \(model.ports.count)"
         case .available: "\(searchModel.results.count) results"
         case .outdated: "\(outdatedModel.ports.count) outdated"
+        case .inactive: "\(inactivePorts.count) inactive"
         }
     }
 
@@ -215,6 +262,7 @@ struct ContentView: View {
             case .installed: installedList
             case .available: searchList
             case .outdated: outdatedList
+            case .inactive: inactiveList
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -256,6 +304,19 @@ struct ContentView: View {
                     Text(row.isInstalled ? "Installed" : "")
                         .foregroundStyle(.secondary)
                 }
+            }
+        }
+    }
+
+    @ViewBuilder private var inactiveList: some View {
+        if inactivePorts.isEmpty {
+            ContentUnavailableView("No inactive ports", systemImage: "archivebox",
+                                   description: Text("Old versions left behind by upgrades appear here."))
+        } else {
+            Table(inactivePorts, selection: $inactiveSelection, sortOrder: $sortOrder) {
+                TableColumn("Name", value: \.name)
+                TableColumn("Version") { Text("\($0.version)_\($0.revision)") }
+                TableColumn("Variants") { Text($0.variants.map { "+" + $0 }.joined(separator: " ")).foregroundStyle(.secondary) }
             }
         }
     }
