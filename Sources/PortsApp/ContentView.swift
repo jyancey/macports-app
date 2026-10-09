@@ -127,7 +127,7 @@ struct ContentView: View {
     }
 
     @AppStorage("activityHeight") private var activityHeight: Double = 200
-    @State private var dragStartHeight: Double?
+    @State private var dragPreview: Double?
 
     private var currentMode: BrowseMode { mode ?? .installed }
 
@@ -140,10 +140,23 @@ struct ContentView: View {
                         .onHover { $0 ? NSCursor.resizeUpDown.push() : NSCursor.pop() }
                         .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
                             .onChanged { v in
-                                if dragStartHeight == nil { dragStartHeight = activityHeight }
-                                activityHeight = min(600, max(80, (dragStartHeight ?? 200) - v.translation.height))
+                                dragPreview = min(600, max(80, activityHeight - v.translation.height))
                             }
-                            .onEnded { _ in dragStartHeight = nil }))
+                            .onEnded { _ in
+                                if let h = dragPreview { activityHeight = h }
+                                dragPreview = nil
+                            }))
+                    .overlay(alignment: .top) {
+                        if let h = dragPreview {
+                            Rectangle().fill(Color.accentColor).frame(height: 2)
+                                .overlay(alignment: .trailing) {
+                                    Text("\(Int(h)) pt").font(.caption2).padding(2)
+                                        .background(.regularMaterial)
+                                        .offset(y: -14)
+                                }
+                                .offset(y: activityHeight - h)
+                        }
+                    }
                 ActivityLogView(height: activityHeight)
             }
         }
