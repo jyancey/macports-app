@@ -20,6 +20,7 @@ enum AppInfo {
 struct PortsApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @State private var activity = ActivityLog()
+    @Environment(\.openWindow) private var openWindow
 
     var body: some Scene {
         WindowGroup("Ports") {
@@ -31,7 +32,17 @@ struct PortsApp: App {
             CommandGroup(replacing: .appInfo) {
                 Button("About \(AppInfo.name)") { showAbout() }
             }
+            CommandGroup(replacing: .help) {
+                Button("\(AppInfo.name) Help") { openWindow(id: "help") }
+                    .keyboardShortcut("?", modifiers: .command)
+                Divider()
+                Link("MacPorts Guide", destination: URL(string: "https://guide.macports.org")!)
+                Link("MacPorts Website", destination: URL(string: "https://www.macports.org")!)
+                Link("Browse All Ports", destination: URL(string: "https://ports.macports.org")!)
+                Link("Report a MacPorts Problem", destination: URL(string: "https://trac.macports.org/newticket")!)
+            }
         }
+        Window("\(AppInfo.name) Help", id: "help") { HelpView() }
     }
 
     private func showAbout() {
