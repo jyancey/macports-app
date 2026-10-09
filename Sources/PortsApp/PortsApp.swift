@@ -9,7 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 enum AppInfo {
-    static let name = "Ports"
+    static let name = "PortsApp"
     static let version = "0.1.0"
     static let build = "1"
     static let author = "John Yancey"
