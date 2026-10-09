@@ -55,7 +55,10 @@ struct PortDetailView: View {
 
     private var header: some View {
         HStack(alignment: .center, spacing: 12) {
-            MacPortsLogo(size: 40)
+            Image(systemName: "shippingbox.fill")
+                .font(.system(size: 34))
+                .foregroundStyle(.tint)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(port.name).font(.title.bold()).textSelection(.enabled)
                 Text("\(port.version)_\(port.revision)" + (port.isActive ? "" : " (inactive)"))
