@@ -58,7 +58,10 @@ struct PortsApp: App {
             .credits: credits,
             NSApplication.AboutPanelOptionKey(rawValue: "Copyright"): AppInfo.copyright,
         ]
-        if let logo = MacPortsLogo.image { options[.applicationIcon] = logo }
+        if let url = Bundle.module.url(forResource: "AppIcon", withExtension: "png"),
+           let icon = NSImage(contentsOf: url) {
+            options[.applicationIcon] = icon
+        }
         NSApp.orderFrontStandardAboutPanel(options: options)
     }
 }
