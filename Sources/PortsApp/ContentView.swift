@@ -403,6 +403,8 @@ struct ContentView: View {
         if let error = model.errorMessage {
             ContentUnavailableView("Can't read ports", systemImage: "exclamationmark.triangle",
                                    description: Text(error))
+        } else if model.isLoading && model.ports.isEmpty {
+            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             Table(filtered, selection: $selection, sortOrder: $sortOrder) {
                 TableColumn("Name", value: \.name)
@@ -411,7 +413,6 @@ struct ContentView: View {
                 TableColumn("Status") { Text($0.isActive ? "Active" : "Inactive")
                     .foregroundStyle($0.isActive ? .primary : .secondary) }
             }
-            .overlay { if model.isLoading && model.ports.isEmpty { ProgressView() } }
         }
     }
 }
