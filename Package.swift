@@ -6,7 +6,8 @@ let package = Package(
     platforms: [.macOS(.v14)],
     targets: [
         .target(name: "PortsKit"),
-        .executableTarget(name: "PortsApp", dependencies: ["PortsKit"]),
+        .executableTarget(name: "PortsApp", dependencies: ["PortsKit"],
+                          resources: [.process("Resources")]),
         .testTarget(name: "PortsKitTests", dependencies: ["PortsKit"]),
     ]
 )
