@@ -233,7 +233,6 @@ struct ContentView: View {
         .navigationTitle("\(currentMode.rawValue) Ports")
         .navigationSubtitle(subtitle)
         .toolbar {
-            ToolbarItem(placement: .navigation) { MacPortsLogo(size: 22) }
             ToolbarItem {
                 Button("Activity Log", systemImage: "terminal") { activity.isVisible.toggle() }
                     .help("Show or hide the activity log")

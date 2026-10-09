@@ -40,12 +40,14 @@ struct PortsApp: App {
             attributes: [.font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
                          .foregroundColor: NSColor.labelColor])
         credits.setAlignment(.center, range: NSRange(location: 0, length: credits.length))
-        NSApp.orderFrontStandardAboutPanel(options: [
+        var options: [NSApplication.AboutPanelOptionKey: Any] = [
             .applicationName: AppInfo.name,
             .applicationVersion: AppInfo.version,
             .version: AppInfo.build,
             .credits: credits,
             NSApplication.AboutPanelOptionKey(rawValue: "Copyright"): AppInfo.copyright,
-        ])
+        ]
+        if let logo = MacPortsLogo.image { options[.applicationIcon] = logo }
+        NSApp.orderFrontStandardAboutPanel(options: options)
     }
 }

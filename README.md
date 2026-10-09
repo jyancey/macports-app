@@ -18,7 +18,7 @@ Early development. Currently implemented:
 
 ## MacPorts logo
 
-The app shows the MacPorts logo in the toolbar and the empty state, loaded from
+The app shows the MacPorts logo in the About panel and the empty state, loaded from
 `Sources/PortsApp/Resources/MacPortsLogo.svg` (`.pdf` / `.png` also work).
 
 ## Requirements
