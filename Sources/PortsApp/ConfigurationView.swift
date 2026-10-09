@@ -9,6 +9,7 @@ struct ConfigurationView: View {
     @State private var pathDraft = ""
     @State private var newSource = ""
     @State private var sourceError: String?
+    @State private var sourceToRemove: String?
     @State private var info: MacPortsInfo?
     @State private var failure: String?
 
@@ -31,7 +32,15 @@ struct ConfigurationView: View {
                     row("Installed ports", "\(info.installedCount)")
                     row("Last sync", info.lastSync?.formatted(date: .abbreviated, time: .shortened) ?? "Unknown")
                     ForEach(Array(info.sources.enumerated()), id: \.offset) { i, src in
-                        row(i == 0 ? "Sources" : "", src)
+                        LabeledContent(i == 0 ? "Sources" : "") {
+                            HStack {
+                                Text(src).textSelection(.enabled)
+                                Spacer()
+                                Button("Remove source", systemImage: "minus.circle") { sourceToRemove = src }
+                                    .labelStyle(.iconOnly).buttonStyle(.borderless)
+                                    .disabled(info.sources.count < 2 || activity.isRunning)
+                            }
+                        }
                     }
                 } else if let failure {
                     Text(failure).foregroundStyle(.secondary)
@@ -88,6 +97,15 @@ struct ConfigurationView: View {
             }
         }
         .formStyle(.grouped)
+        .confirmationDialog(
+            "Remove this source?", isPresented: Binding(
+                get: { sourceToRemove != nil }, set: { if !$0 { sourceToRemove = nil } }),
+            presenting: sourceToRemove
+        ) { url in
+            Button("Remove", role: .destructive) { removeSource(url) }
+        } message: { url in
+            Text("\(url) will be removed from sources.conf. You will be asked for your administrator password.")
+        }
         .task {
             pathDraft = PortClient.configuredExecutablePath
             await loadInfo()
@@ -95,6 +113,19 @@ struct ConfigurationView: View {
     }
 
     private var trimmedSource: String { newSource.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    private func removeSource(_ url: String) {
+        guard let conf = info?.sourcesConfPath else { return }
+        sourceError = nil
+        Task {
+            await activity.run("remove source \(url)", name: "sources") { out in
+                try await PortClient().removeSource(url, from: conf)
+                out("Removed \(url) from \(conf)\n")
+            }
+            await loadInfo()
+            if info?.sources.contains(url) == true { sourceError = "The source was not removed." }
+        }
+    }
 
     private func addSource() {
         let url = trimmedSource

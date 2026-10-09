@@ -57,4 +57,14 @@ import Testing
     @Test func rejectsDuplicates() {
         #expect(MacPortsInfo.addingSource("file:///a/ports", to: conf) == nil)
     }
+
+    @Test func removesSourceKeepingFlagsOfOthers() {
+        let out = MacPortsInfo.removingSource("file:///a/ports", from: conf)
+        #expect(out == "# c\nrsync://x/ports.tar.gz [default]\n")
+    }
+
+    @Test func refusesToRemoveLastOrUnknownSource() {
+        #expect(MacPortsInfo.removingSource("file:///zzz", from: conf) == nil)
+        #expect(MacPortsInfo.removingSource("file:///a", from: "file:///a\n") == nil)
+    }
 }

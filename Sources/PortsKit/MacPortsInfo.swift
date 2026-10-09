@@ -71,6 +71,19 @@ extension MacPortsInfo {
         lines.insert(url, at: index)
         return lines.joined(separator: "\n") + "\n"
     }
+
+    /// Returns `text` without the source `url`, or nil if it is not present or is the only source.
+    public static func removingSource(_ url: String, from text: String) -> String? {
+        let sources = parseSources(text)
+        guard sources.contains(url), sources.count > 1 else { return nil }
+        var lines = text.components(separatedBy: "\n")
+        if lines.last == "" { lines.removeLast() }
+        lines.removeAll { line in
+            let t = line.trimmingCharacters(in: .whitespaces)
+            return !t.hasPrefix("#") && t.split(separator: " ").first.map(String.init) == url
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
 }
 
 extension PortClient {
