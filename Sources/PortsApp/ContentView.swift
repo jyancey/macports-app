@@ -110,10 +110,12 @@ struct ContentView: View {
             if currentMode == .available, let name = searchSelection {
                 PortDetailView(name: name,
                                isInstalled: model.ports.contains { $0.name == name },
-                               onInstalled: { await model.load() })
+                               onInstalled: { await model.load() },
+                               onUninstalled: { await model.load() })
             } else if currentMode == .installed, let port = selectedPort {
                 PortDetailView(name: port.name,
-                               subtitle: "\(port.version)_\(port.revision)" + (port.isActive ? "" : " (inactive)"))
+                               subtitle: "\(port.version)_\(port.revision)" + (port.isActive ? "" : " (inactive)"),
+                               onUninstalled: { await model.load() })
             } else {
                 ContentUnavailableView {
                     Text("Select a port").font(.title2)

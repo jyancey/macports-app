@@ -43,6 +43,9 @@ struct PortDetailView: View {
     var isInstalled = true
     /// Called after a successful install so the caller can refresh its lists.
     var onInstalled: () async -> Void = {}
+    /// Called after a successful uninstall.
+    var onUninstalled: () async -> Void = {}
+    @State private var confirmUninstall = false
     @Environment(ActivityLog.self) private var activity
     @State private var model = PortDetailModel()
 
@@ -75,7 +78,32 @@ struct PortDetailView: View {
                 }
             }
             Spacer()
-            if !isInstalled { installControls }
+            if isInstalled { uninstallControls } else { installControls }
+        }
+        .confirmationDialog("Uninstall \(name)?", isPresented: $confirmUninstall) {
+            Button("Uninstall", role: .destructive) {
+                Task {
+                    let client = PortClient()
+                    let ok = await activity.run("sudo port uninstall \(name)", name: name) { out in
+                        try await client.uninstall(name, onOutput: out)
+                    }
+                    if ok { await onUninstalled() }
+                }
+            }
+        } message: {
+            Text("This removes the port from your system. You'll be asked for your administrator password.")
+        }
+    }
+
+    @ViewBuilder private var uninstallControls: some View {
+        if activity.runningName == name {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text("Working…").foregroundStyle(.secondary)
+            }
+        } else {
+            Button("Uninstall", systemImage: "trash", role: .destructive) { confirmUninstall = true }
+                .disabled(activity.isRunning)
         }
     }
 

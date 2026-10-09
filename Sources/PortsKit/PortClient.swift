@@ -74,6 +74,17 @@ public struct PortClient: Sendable {
     /// that is tailed while it runs.
     public func install(_ name: String,
                         onOutput: @escaping @MainActor @Sendable (String) -> Void) async throws {
+        try await runStreaming(action: "install", name: name, onOutput: onOutput)
+    }
+
+    /// Uninstalls a port (fails, with `port`'s explanation in the output, if other ports depend on it).
+    public func uninstall(_ name: String,
+                          onOutput: @escaping @MainActor @Sendable (String) -> Void) async throws {
+        try await runStreaming(action: "uninstall", name: name, onOutput: onOutput)
+    }
+
+    private func runStreaming(action: String, name: String,
+                              onOutput: @escaping @MainActor @Sendable (String) -> Void) async throws {
         guard isAvailable else { throw PortClientError.notInstalled(executableURL.path) }
         guard PortClient.isValidPortName(name) else { throw PortClientError.invalidName(name) }
 
@@ -88,7 +99,7 @@ public struct PortClient: Sendable {
             throw PortClientError.invalidName(log.path)
         }
 
-        let command = "\(executableURL.path) -N -v install \(name) > \(log.path) 2>&1"
+        let command = "\(executableURL.path) -N -v \(action) \(name) > \(log.path) 2>&1"
         let tail = Task.detached { await PortClient.tail(log, onOutput: onOutput) }
         do {
             try await runPrivileged(command)
