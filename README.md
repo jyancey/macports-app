@@ -56,3 +56,8 @@ Or open `Package.swift` in Xcode and run the `PortsApp` scheme.
 ## Development
 
 This repo uses git flow (`main`, `develop`, `feature/*`, ...). Start work with `git flow feature start <name>`.
+
+## Release package
+
+`scripts/package.sh [version]` builds a universal release `dist/Ports.app` (ad-hoc signed) and
+`dist/Ports-<version>.zip`. To distribute beyond your own machines, sign with a Developer ID and notarize.
