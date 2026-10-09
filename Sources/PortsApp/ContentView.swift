@@ -63,6 +63,12 @@ enum BrowseMode: String, CaseIterable, Identifiable {
     }
 }
 
+struct SearchRow: Identifiable {
+    let name: String
+    let isInstalled: Bool
+    var id: String { name }
+}
+
 struct ContentView: View {
     @Environment(ActivityLog.self) private var activity
     @State private var model = InstalledPortsModel()
@@ -170,13 +176,12 @@ struct ContentView: View {
             ContentUnavailableView.search(text: search)
         } else {
             let installed = Set(model.ports.map(\.name))
-            List(searchModel.results, id: \.self, selection: $searchSelection) { name in
-                HStack {
-                    Text(name)
-                    Spacer()
-                    if installed.contains(name) {
-                        Text("Installed").font(.caption).foregroundStyle(.secondary)
-                    }
+            let rows = searchModel.results.map { SearchRow(name: $0, isInstalled: installed.contains($0)) }
+            Table(rows, selection: $searchSelection) {
+                TableColumn("Name", value: \.name)
+                TableColumn("Status") { row in
+                    Text(row.isInstalled ? "Installed" : "")
+                        .foregroundStyle(.secondary)
                 }
             }
         }
