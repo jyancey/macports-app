@@ -59,6 +59,7 @@ final class ActivityLog {
 }
 
 struct ActivityLogView: View {
+    var height: Double = 200
     @Environment(ActivityLog.self) private var log
 
     var body: some View {
@@ -99,7 +100,7 @@ struct ActivityLogView: View {
                 }
             }
         }
-        .frame(height: 200)
+        .frame(height: height)
         .background(.background)
     }
 }

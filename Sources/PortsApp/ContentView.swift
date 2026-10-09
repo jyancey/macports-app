@@ -126,6 +126,9 @@ struct ContentView: View {
         return shown.sorted(using: sortOrder)
     }
 
+    @AppStorage("activityHeight") private var activityHeight: Double = 200
+    @State private var dragStartHeight: Double?
+
     private var currentMode: BrowseMode { mode ?? .installed }
 
     var body: some View {
@@ -133,7 +136,15 @@ struct ContentView: View {
             split
             if activity.isVisible {
                 Divider()
-                ActivityLogView()
+                    .overlay(Color.clear.frame(height: 8).contentShape(Rectangle())
+                        .onHover { $0 ? NSCursor.resizeUpDown.push() : NSCursor.pop() }
+                        .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                            .onChanged { v in
+                                if dragStartHeight == nil { dragStartHeight = activityHeight }
+                                activityHeight = min(600, max(80, (dragStartHeight ?? 200) - v.translation.height))
+                            }
+                            .onEnded { _ in dragStartHeight = nil }))
+                ActivityLogView(height: activityHeight)
             }
         }
         .task { await model.load() }
