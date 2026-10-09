@@ -81,7 +81,9 @@ struct InstalledPortsView: View {
                 .navigationSplitViewColumnWidth(min: 420, ideal: 520)
         } detail: {
             if mode == .available, let name = searchSelection {
-                PortDetailView(name: name)
+                PortDetailView(name: name,
+                               isInstalled: model.ports.contains { $0.name == name },
+                               onInstalled: { await model.load() })
             } else if mode == .installed, let port = selectedPort {
                 PortDetailView(name: port.name,
                                subtitle: "\(port.version)_\(port.revision)" + (port.isActive ? "" : " (inactive)"))

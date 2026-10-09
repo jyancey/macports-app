@@ -14,9 +14,28 @@ final class PortDetailModel {
     var files: Loadable<[String]> = .loading
     var dependents: Loadable<[String]> = .loading
 
+    enum InstallState: Equatable { case idle, installing, failed(String) }
+    var installState = InstallState.idle
+
     private let client = PortClient()
 
+    /// Returns true when the install succeeded.
+    func install(_ name: String) async -> Bool {
+        installState = .installing
+        do {
+            try await client.install(name)
+            installState = .idle
+            return true
+        } catch PortClientError.cancelled {
+            installState = .idle
+        } catch {
+            installState = .failed(error.localizedDescription)
+        }
+        return false
+    }
+
     func load(_ name: String) async {
+        if installState != .installing { installState = .idle }
         info = .loading
         files = .loading
         dependents = .loading
@@ -39,6 +58,10 @@ struct PortDetailView: View {
     let name: String
     /// Shown under the name; defaults to the version from `port info`.
     var subtitle: String?
+    /// When false, an Install button is offered.
+    var isInstalled = true
+    /// Called after a successful install so the caller can refresh its lists.
+    var onInstalled: () async -> Void = {}
     @State private var model = PortDetailModel()
 
     var body: some View {
@@ -68,6 +91,33 @@ struct PortDetailView: View {
                 } else if case .loaded(let info) = model.info {
                     Text(info.version).foregroundStyle(.secondary)
                 }
+            }
+            Spacer()
+            if !isInstalled { installControls }
+        }
+    }
+
+    @ViewBuilder private var installControls: some View {
+        VStack(alignment: .trailing, spacing: 4) {
+            if model.installState == .installing {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("Installing…").foregroundStyle(.secondary)
+                }
+            } else {
+                Button("Install", systemImage: "arrow.down.circle") {
+                    Task {
+                        if await model.install(name) {
+                            await onInstalled()
+                            await model.load(name)
+                        }
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            if case .failed(let message) = model.installState {
+                Text(message).font(.caption).foregroundStyle(.red)
+                    .lineLimit(4).frame(maxWidth: 320, alignment: .trailing)
             }
         }
     }
