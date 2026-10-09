@@ -146,7 +146,7 @@ struct ContentView: View {
     }
 
     private var upgradeAllButton: some View {
-        Button("Upgrade All", systemImage: "arrow.up.circle") {
+        Button("Upgrade All", systemImage: "desktopcomputer.and.arrow.down") {
             Task {
                 await activity.run("sudo port upgrade outdated", name: "outdated") { out in
                     try await PortClient().upgradeAll(onOutput: out)
@@ -160,7 +160,7 @@ struct ContentView: View {
 
     private var removeInactiveButtons: some View {
         Group {
-            Button("Remove Selected", systemImage: "trash") {
+            Button("Remove Selected", systemImage: "eraser.badge.xmark") {
                 guard let port = model.ports.first(where: { $0.id == inactiveSelection }) else { return }
                 Task {
                     _ = await activity.run("sudo port uninstall \(port.name) @\(port.version)_\(port.revision)",
@@ -173,7 +173,7 @@ struct ContentView: View {
             }
             .disabled(activity.isRunning || inactiveSelection == nil)
             .help("Remove the selected inactive version")
-            Button("Remove All", systemImage: "eraser.fill") {
+            Button("Remove All", systemImage: "eraser.badge.xmark.fill") {
                 Task {
                     _ = await activity.run("sudo port uninstall inactive", name: "inactive") { out in
                         try await PortClient().uninstallInactive(onOutput: out)
