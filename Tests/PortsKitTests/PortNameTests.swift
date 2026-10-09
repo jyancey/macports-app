@@ -14,3 +14,10 @@ struct PortNameTests {
         }
     }
 }
+
+@Test func safePathsAreConservative() {
+    #expect(PortClient.isSafePath("/var/folders/ab/T/ports-app-1-2/install.log"))
+    #expect(!PortClient.isSafePath("/tmp/a b"))
+    #expect(!PortClient.isSafePath("/tmp/a;rm"))
+    #expect(!PortClient.isSafePath(""))
+}
