@@ -50,15 +50,38 @@ final class SearchModel {
     }
 }
 
+@MainActor
+@Observable
+final class OutdatedModel {
+    var ports: [OutdatedPort] = []
+    var isLoading = false
+    var errorMessage: String?
+
+    private let client = PortClient()
+
+    func load() async {
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+        do {
+            ports = try await client.outdated()
+        } catch {
+            ports = []
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
 /// Sidebar destinations. Add a case here to add a tab.
 enum BrowseMode: String, CaseIterable, Identifiable {
-    case installed = "Installed", available = "Available"
+    case installed = "Installed", available = "Available", outdated = "Outdated"
     var id: Self { self }
 
     var symbol: String {
         switch self {
         case .installed: "checkmark.circle"
         case .available: "magnifyingglass"
+        case .outdated: "arrow.triangle.2.circlepath"
         }
     }
 }
@@ -73,6 +96,8 @@ struct ContentView: View {
     @Environment(ActivityLog.self) private var activity
     @State private var model = InstalledPortsModel()
     @State private var searchModel = SearchModel()
+    @State private var outdatedModel = OutdatedModel()
+    @State private var outdatedSelection: String?
     @State private var mode: BrowseMode? = .installed
     @State private var searchSelection: String?
     @State private var search = ""
@@ -102,6 +127,27 @@ struct ContentView: View {
             }
         }
         .task { await model.load() }
+        .task(id: mode) {
+            if currentMode == .outdated { await outdatedModel.load() }
+        }
+    }
+
+    private func refreshAll() async {
+        await model.load()
+        await outdatedModel.load()
+    }
+
+    private var upgradeAllButton: some View {
+        Button("Upgrade All", systemImage: "arrow.up.circle") {
+            Task {
+                let ok = await activity.run("sudo port upgrade outdated", name: "outdated") { out in
+                    try await PortClient().upgradeAll(onOutput: out)
+                }
+                await refreshAll()
+            }
+        }
+        .disabled(activity.isRunning || outdatedModel.ports.isEmpty)
+        .help("Upgrade every outdated port")
     }
 
     private var split: some View {
@@ -119,6 +165,11 @@ struct ContentView: View {
                                isInstalled: model.ports.contains { $0.name == name },
                                onInstalled: { await model.load() },
                                onUninstalled: { await model.load() })
+            } else if currentMode == .outdated, let port = outdatedModel.ports.first(where: { $0.id == outdatedSelection }) {
+                PortDetailView(name: port.name,
+                               subtitle: "\(port.installedVersion) → \(port.availableVersion)",
+                               onUpgrade: { await refreshAll() },
+                               onUninstalled: { await refreshAll() })
             } else if currentMode == .installed, let port = selectedPort {
                 PortDetailView(name: port.name,
                                subtitle: "\(port.version)_\(port.revision)" + (port.isActive ? "" : " (inactive)"),
@@ -134,30 +185,41 @@ struct ContentView: View {
                 }
             }
         }
-        .navigationTitle(currentMode == .installed ? "Installed Ports" : "Available Ports")
-        .navigationSubtitle(currentMode == .installed
-            ? "\(filtered.count) of \(model.ports.count)"
-            : "\(searchModel.results.count) results")
+        .navigationTitle("\(currentMode.rawValue) Ports")
+        .navigationSubtitle(subtitle)
         .toolbar {
             ToolbarItem(placement: .navigation) { MacPortsLogo(size: 22) }
             ToolbarItem {
                 Button("Activity Log", systemImage: "terminal") { activity.isVisible.toggle() }
                     .help("Show or hide the activity log")
             }
+            if currentMode == .outdated { ToolbarItem { upgradeAllButton } }
             ToolbarItem {
-                Button("Refresh", systemImage: "arrow.clockwise") { Task { await model.load() } }
-                    .disabled(model.isLoading)
+                Button("Refresh", systemImage: "arrow.clockwise") { Task { await refreshAll() } }
+                    .disabled(model.isLoading || outdatedModel.isLoading)
             }
+        }
+    }
+
+    private var subtitle: String {
+        switch currentMode {
+        case .installed: "\(filtered.count) of \(model.ports.count)"
+        case .available: "\(searchModel.results.count) results"
+        case .outdated: "\(outdatedModel.ports.count) outdated"
         }
     }
 
     private var list: some View {
         Group {
-            if currentMode == .installed { installedList } else { searchList }
+            switch currentMode {
+            case .installed: installedList
+            case .available: searchList
+            case .outdated: outdatedList
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .searchable(text: $search,
-                    prompt: currentMode == .installed ? "Filter installed ports" : "Search available ports")
+                    prompt: currentMode == .available ? "Search available ports" : "Filter \(currentMode.rawValue.lowercased()) ports")
         .searchScopes($scope) {
             if currentMode == .available {
                 ForEach(SearchScope.allCases) { Text($0.rawValue).tag($0) }
@@ -194,6 +256,27 @@ struct ContentView: View {
                     Text(row.isInstalled ? "Installed" : "")
                         .foregroundStyle(.secondary)
                 }
+            }
+        }
+    }
+
+    @ViewBuilder private var outdatedList: some View {
+        if let error = outdatedModel.errorMessage {
+            ContentUnavailableView("Can't check for updates", systemImage: "exclamationmark.triangle",
+                                   description: Text(error))
+        } else if outdatedModel.isLoading && outdatedModel.ports.isEmpty {
+            ProgressView("Checking…").frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if outdatedModel.ports.isEmpty {
+            ContentUnavailableView("Everything is up to date", systemImage: "checkmark.circle",
+                                   description: Text("No installed ports have newer versions."))
+        } else {
+            let rows = outdatedModel.ports.filter {
+                search.isEmpty || $0.name.localizedCaseInsensitiveContains(search)
+            }
+            Table(rows, selection: $outdatedSelection) {
+                TableColumn("Name", value: \.name)
+                TableColumn("Installed", value: \.installedVersion)
+                TableColumn("Available", value: \.availableVersion)
             }
         }
     }

@@ -43,6 +43,8 @@ struct PortDetailView: View {
     var isInstalled = true
     /// Called after a successful install so the caller can refresh its lists.
     var onInstalled: () async -> Void = {}
+    /// When set, an Upgrade button is offered and this runs after a successful upgrade.
+    var onUpgrade: (() async -> Void)?
     /// Called after a successful uninstall.
     var onUninstalled: () async -> Void = {}
     @State private var confirmUninstall = false
@@ -78,6 +80,7 @@ struct PortDetailView: View {
                 }
             }
             Spacer()
+            if isInstalled, let onUpgrade { upgradeControls(onUpgrade) }
             if isInstalled { uninstallControls } else { installControls }
         }
         .confirmationDialog("Uninstall \(name)?", isPresented: $confirmUninstall) {
@@ -92,6 +95,22 @@ struct PortDetailView: View {
             }
         } message: {
             Text("This removes the port from your system. You'll be asked for your administrator password.")
+        }
+    }
+
+    @ViewBuilder private func upgradeControls(_ done: @escaping () async -> Void) -> some View {
+        if activity.runningName != name {
+            Button("Upgrade", systemImage: "arrow.up.circle") {
+                Task {
+                    let client = PortClient()
+                    let ok = await activity.run("sudo port upgrade \(name)", name: name) { out in
+                        try await client.upgrade(name, onOutput: out)
+                    }
+                    if ok { await done() }
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(activity.isRunning)
         }
     }
 
