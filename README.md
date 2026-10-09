@@ -12,7 +12,8 @@ Early development. Currently implemented:
 - [x] Install an available port (asks for your administrator password)
 - [x] Live activity log (bottom panel, toggle from the toolbar) streaming install output
 - [x] Sidebar layout (Installed / Available), ready for more tabs
-- [ ] Uninstall/upgrade (planned)
+- [x] Uninstall an installed port (with confirmation)
+- [ ] Upgrade (planned)
 
 ## MacPorts logo
 

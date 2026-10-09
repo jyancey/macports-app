@@ -5,6 +5,7 @@ public enum PortClientError: LocalizedError {
     case commandFailed(status: Int32, stderr: String)
     case unparseable(String)
     case invalidName(String)
+    case invalidPattern(String)
     case cancelled
 
     public var errorDescription: String? {
@@ -13,6 +14,8 @@ public enum PortClientError: LocalizedError {
             return "Couldn't read information for \(name)."
         case .invalidName(let name):
             return "\(name) is not a valid port name."
+        case .invalidPattern(let pattern):
+            return "\(pattern) is not a valid regular expression."
         case .cancelled:
             return "The operation was cancelled."
         case .notInstalled(let path):
@@ -42,11 +45,15 @@ public struct PortClient: Sendable {
         return PortListParser.parseInstalled(output)
     }
 
-    /// Names of available ports whose name or description matches `term`.
-    public func search(_ term: String) async throws -> [String] {
+    /// Names of available ports matching `term` under `scope`, best matches first.
+    public func search(_ term: String, scope: SearchScope = .name) async throws -> [String] {
         let term = term.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !term.isEmpty else { return [] }
-        return PortInfoParser.parseNames(try await run(["-q", "search", "--line", "--", term]))
+        if scope == .regex, (try? NSRegularExpression(pattern: term)) == nil {
+            throw PortClientError.invalidPattern(term)
+        }
+        let output = try await run(["-q", "search", "--line"] + scope.flags + ["--", term])
+        return SearchRanking.sorted(PortInfoParser.parseNames(output), for: term)
     }
 
     public func info(for name: String) async throws -> PortInfo {
@@ -74,6 +81,17 @@ public struct PortClient: Sendable {
     /// that is tailed while it runs.
     public func install(_ name: String,
                         onOutput: @escaping @MainActor @Sendable (String) -> Void) async throws {
+        try await runStreaming(action: "install", name: name, onOutput: onOutput)
+    }
+
+    /// Uninstalls a port (fails, with `port`'s explanation in the output, if other ports depend on it).
+    public func uninstall(_ name: String,
+                          onOutput: @escaping @MainActor @Sendable (String) -> Void) async throws {
+        try await runStreaming(action: "uninstall", name: name, onOutput: onOutput)
+    }
+
+    private func runStreaming(action: String, name: String,
+                              onOutput: @escaping @MainActor @Sendable (String) -> Void) async throws {
         guard isAvailable else { throw PortClientError.notInstalled(executableURL.path) }
         guard PortClient.isValidPortName(name) else { throw PortClientError.invalidName(name) }
 
@@ -88,7 +106,7 @@ public struct PortClient: Sendable {
             throw PortClientError.invalidName(log.path)
         }
 
-        let command = "\(executableURL.path) -N -v install \(name) > \(log.path) 2>&1"
+        let command = "\(executableURL.path) -N -v \(action) \(name) > \(log.path) 2>&1"
         let tail = Task.detached { await PortClient.tail(log, onOutput: onOutput) }
         do {
             try await runPrivileged(command)

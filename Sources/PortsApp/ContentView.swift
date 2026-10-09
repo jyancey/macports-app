@@ -33,12 +33,12 @@ final class SearchModel {
 
     private let client = PortClient()
 
-    func search(_ term: String) async {
+    func search(_ term: String, scope: SearchScope) async {
         isSearching = true
         errorMessage = nil
         defer { isSearching = false }
         do {
-            let found = try await client.search(term)
+            let found = try await client.search(term, scope: scope)
             guard !Task.isCancelled else { return }
             results = found
             hasSearched = true
@@ -63,6 +63,12 @@ enum BrowseMode: String, CaseIterable, Identifiable {
     }
 }
 
+struct SearchRow: Identifiable {
+    let name: String
+    let isInstalled: Bool
+    var id: String { name }
+}
+
 struct ContentView: View {
     @Environment(ActivityLog.self) private var activity
     @State private var model = InstalledPortsModel()
@@ -70,6 +76,7 @@ struct ContentView: View {
     @State private var mode: BrowseMode? = .installed
     @State private var searchSelection: String?
     @State private var search = ""
+    @State private var scope = SearchScope.name
     @State private var sortOrder = [KeyPathComparator(\InstalledPort.name)]
 
     @State private var selection: InstalledPort.ID?
@@ -110,10 +117,12 @@ struct ContentView: View {
             if currentMode == .available, let name = searchSelection {
                 PortDetailView(name: name,
                                isInstalled: model.ports.contains { $0.name == name },
-                               onInstalled: { await model.load() })
+                               onInstalled: { await model.load() },
+                               onUninstalled: { await model.load() })
             } else if currentMode == .installed, let port = selectedPort {
                 PortDetailView(name: port.name,
-                               subtitle: "\(port.version)_\(port.revision)" + (port.isActive ? "" : " (inactive)"))
+                               subtitle: "\(port.version)_\(port.revision)" + (port.isActive ? "" : " (inactive)"),
+                               onUninstalled: { await model.load() })
             } else {
                 ContentUnavailableView {
                     Text("Select a port").font(.title2)
@@ -149,9 +158,19 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .searchable(text: $search,
                     prompt: currentMode == .installed ? "Filter installed ports" : "Search available ports")
+        .searchScopes($scope) {
+            if currentMode == .available {
+                ForEach(SearchScope.allCases) { Text($0.rawValue).tag($0) }
+            }
+        }
+        .onChange(of: scope) {
+            if currentMode == .available, searchModel.hasSearched, !search.isEmpty {
+                Task { await searchModel.search(search, scope: scope) }
+            }
+        }
         .onSubmit(of: .search) {
             guard currentMode == .available else { return }
-            Task { await searchModel.search(search) }
+            Task { await searchModel.search(search, scope: scope) }
         }
     }
 
@@ -168,13 +187,12 @@ struct ContentView: View {
             ContentUnavailableView.search(text: search)
         } else {
             let installed = Set(model.ports.map(\.name))
-            List(searchModel.results, id: \.self, selection: $searchSelection) { name in
-                HStack {
-                    Text(name)
-                    Spacer()
-                    if installed.contains(name) {
-                        Text("Installed").font(.caption).foregroundStyle(.secondary)
-                    }
+            let rows = searchModel.results.map { SearchRow(name: $0, isInstalled: installed.contains($0)) }
+            Table(rows, selection: $searchSelection) {
+                TableColumn("Name", value: \.name)
+                TableColumn("Status") { row in
+                    Text(row.isInstalled ? "Installed" : "")
+                        .foregroundStyle(.secondary)
                 }
             }
         }
