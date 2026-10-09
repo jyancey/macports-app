@@ -50,15 +50,24 @@ final class SearchModel {
     }
 }
 
+/// Sidebar destinations. Add a case here to add a tab.
 enum BrowseMode: String, CaseIterable, Identifiable {
     case installed = "Installed", available = "Available"
     var id: Self { self }
+
+    var symbol: String {
+        switch self {
+        case .installed: "checkmark.circle"
+        case .available: "magnifyingglass"
+        }
+    }
 }
 
-struct InstalledPortsView: View {
+struct ContentView: View {
+    @Environment(ActivityLog.self) private var activity
     @State private var model = InstalledPortsModel()
     @State private var searchModel = SearchModel()
-    @State private var mode = BrowseMode.installed
+    @State private var mode: BrowseMode? = .installed
     @State private var searchSelection: String?
     @State private var search = ""
     @State private var sortOrder = [KeyPathComparator(\InstalledPort.name)]
@@ -75,60 +84,73 @@ struct InstalledPortsView: View {
         model.ports.first { $0.id == selection }
     }
 
+    private var currentMode: BrowseMode { mode ?? .installed }
+
     var body: some View {
+        VStack(spacing: 0) {
+            split
+            if activity.isVisible {
+                Divider()
+                ActivityLogView()
+            }
+        }
+        .task { await model.load() }
+    }
+
+    private var split: some View {
         NavigationSplitView {
+            List(BrowseMode.allCases, selection: $mode) { item in
+                Label(item.rawValue, systemImage: item.symbol).tag(item)
+            }
+            .navigationSplitViewColumnWidth(min: 150, ideal: 170, max: 220)
+        } content: {
             list
-                .navigationSplitViewColumnWidth(min: 420, ideal: 520)
+                .navigationSplitViewColumnWidth(min: 380, ideal: 460)
         } detail: {
-            if mode == .available, let name = searchSelection {
+            if currentMode == .available, let name = searchSelection {
                 PortDetailView(name: name,
                                isInstalled: model.ports.contains { $0.name == name },
                                onInstalled: { await model.load() })
-            } else if mode == .installed, let port = selectedPort {
+            } else if currentMode == .installed, let port = selectedPort {
                 PortDetailView(name: port.name,
                                subtitle: "\(port.version)_\(port.revision)" + (port.isActive ? "" : " (inactive)"))
             } else {
                 ContentUnavailableView {
                     Text("Select a port").font(.title2)
                 } description: {
-                    Text(mode == .installed ? "Choose an installed port to see its details."
+                    Text(currentMode == .installed ? "Choose an installed port to see its details."
                                             : "Search for a port, then choose one to see its details.")
                 } actions: {
                     MacPortsLogo(size: 64)
                 }
             }
         }
-        .navigationTitle(mode == .installed ? "Installed Ports" : "Available Ports")
-        .navigationSubtitle(mode == .installed
+        .navigationTitle(currentMode == .installed ? "Installed Ports" : "Available Ports")
+        .navigationSubtitle(currentMode == .installed
             ? "\(filtered.count) of \(model.ports.count)"
             : "\(searchModel.results.count) results")
         .toolbar {
             ToolbarItem(placement: .navigation) { MacPortsLogo(size: 22) }
             ToolbarItem {
+                Button("Activity Log", systemImage: "terminal") { activity.isVisible.toggle() }
+                    .help("Show or hide the activity log")
+            }
+            ToolbarItem {
                 Button("Refresh", systemImage: "arrow.clockwise") { Task { await model.load() } }
                     .disabled(model.isLoading)
             }
         }
-        .task { await model.load() }
     }
 
     private var list: some View {
         Group {
-            if mode == .installed { installedList } else { searchList }
+            if currentMode == .installed { installedList } else { searchList }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .safeAreaInset(edge: .top, spacing: 0) {
-            Picker("Mode", selection: $mode) {
-                ForEach(BrowseMode.allCases) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .padding(8)
-        }
         .searchable(text: $search,
-                    prompt: mode == .installed ? "Filter installed ports" : "Search available ports")
+                    prompt: currentMode == .installed ? "Filter installed ports" : "Search available ports")
         .onSubmit(of: .search) {
-            guard mode == .available else { return }
+            guard currentMode == .available else { return }
             Task { await searchModel.search(search) }
         }
     }

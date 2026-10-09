@@ -19,10 +19,12 @@ enum AppInfo {
 @main
 struct PortsApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
+    @State private var activity = ActivityLog()
 
     var body: some Scene {
         WindowGroup("Ports") {
-            InstalledPortsView()
+            ContentView()
+                .environment(activity)
                 .frame(minWidth: 900, minHeight: 500)
         }
         .commands {

@@ -67,10 +67,38 @@ public struct PortClient: Sendable {
         PortInfoParser.parseDependents(try await run(["-q", "dependents", name]))
     }
 
-    /// Installs a port. `port install` needs root, so it runs through the standard macOS
-    /// administrator password prompt (AppleScript `with administrator privileges`).
-    public func install(_ name: String) async throws {
-        try await runPrivileged(["install", name])
+    /// Installs a port, streaming `port`'s output to `onOutput` as it is produced.
+    ///
+    /// `port install` needs root, so it runs through the standard macOS administrator password
+    /// prompt. That prompt can't stream output, so the command writes to a private log file
+    /// that is tailed while it runs.
+    public func install(_ name: String,
+                        onOutput: @escaping @MainActor @Sendable (String) -> Void) async throws {
+        guard isAvailable else { throw PortClientError.notInstalled(executableURL.path) }
+        guard PortClient.isValidPortName(name) else { throw PortClientError.invalidName(name) }
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ports-app-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let log = directory.appendingPathComponent("install.log")
+        guard FileManager.default.createFile(atPath: log.path, contents: nil, attributes: [.posixPermissions: 0o600]),
+              PortClient.isSafePath(log.path) else {
+            throw PortClientError.invalidName(log.path)
+        }
+
+        let command = "\(executableURL.path) -N -v install \(name) > \(log.path) 2>&1"
+        let tail = Task.detached { await PortClient.tail(log, onOutput: onOutput) }
+        do {
+            try await runPrivileged(command)
+        } catch {
+            tail.cancel()
+            await tail.value
+            throw error
+        }
+        tail.cancel()
+        await tail.value
     }
 
     static func isValidPortName(_ name: String) -> Bool {
@@ -78,12 +106,42 @@ public struct PortClient: Sendable {
             && !name.hasPrefix("-")
     }
 
-    func runPrivileged(_ arguments: [String]) async throws {
-        guard isAvailable else { throw PortClientError.notInstalled(executableURL.path) }
-        for argument in arguments where !PortClient.isValidPortName(argument) {
-            throw PortClientError.invalidName(argument)
+    /// Paths are interpolated into a shell command, so only a conservative character set is allowed.
+    static func isSafePath(_ path: String) -> Bool {
+        !path.isEmpty && path.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || "/._-".contains($0)) }
+    }
+
+    /// Emits complete lines appended to `file` until cancelled, then flushes whatever remains.
+    private static func tail(_ file: URL,
+                             onOutput: @MainActor @Sendable (String) -> Void) async {
+        guard let handle = try? FileHandle(forReadingFrom: file) else { return }
+        defer { try? handle.close() }
+        var pending = Data()
+
+        func drain(final: Bool) async {
+            if let chunk = try? handle.readToEnd(), !chunk.isEmpty { pending.append(chunk) }
+            let end: Data.Index?
+            if final {
+                end = pending.endIndex
+            } else {
+                end = pending.lastIndex(of: 0x0A).map { pending.index(after: $0) }
+            }
+            guard let end, end > pending.startIndex else { return }
+            let text = String(decoding: pending[pending.startIndex..<end], as: UTF8.self)
+            pending.removeSubrange(pending.startIndex..<end)
+            await onOutput(text)
         }
-        let command = ([executableURL.path] + arguments).joined(separator: " ")
+
+        while !Task.isCancelled {
+            await drain(final: false)
+            try? await Task.sleep(for: .milliseconds(150))
+        }
+        await drain(final: true)
+    }
+
+    /// Runs a shell command as root via the macOS administrator prompt.
+    /// `command` must only contain trusted, validated components.
+    func runPrivileged(_ command: String) async throws {
         let script = "do shell script \"\(command)\" with administrator privileges"
         let url = URL(fileURLWithPath: "/usr/bin/osascript")
         try await Task.detached {
