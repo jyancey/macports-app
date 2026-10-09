@@ -33,12 +33,12 @@ final class SearchModel {
 
     private let client = PortClient()
 
-    func search(_ term: String) async {
+    func search(_ term: String, scope: SearchScope) async {
         isSearching = true
         errorMessage = nil
         defer { isSearching = false }
         do {
-            let found = try await client.search(term)
+            let found = try await client.search(term, scope: scope)
             guard !Task.isCancelled else { return }
             results = found
             hasSearched = true
@@ -76,6 +76,7 @@ struct ContentView: View {
     @State private var mode: BrowseMode? = .installed
     @State private var searchSelection: String?
     @State private var search = ""
+    @State private var scope = SearchScope.name
     @State private var sortOrder = [KeyPathComparator(\InstalledPort.name)]
 
     @State private var selection: InstalledPort.ID?
@@ -157,9 +158,19 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .searchable(text: $search,
                     prompt: currentMode == .installed ? "Filter installed ports" : "Search available ports")
+        .searchScopes($scope) {
+            if currentMode == .available {
+                ForEach(SearchScope.allCases) { Text($0.rawValue).tag($0) }
+            }
+        }
+        .onChange(of: scope) {
+            if currentMode == .available, searchModel.hasSearched, !search.isEmpty {
+                Task { await searchModel.search(search, scope: scope) }
+            }
+        }
         .onSubmit(of: .search) {
             guard currentMode == .available else { return }
-            Task { await searchModel.search(search) }
+            Task { await searchModel.search(search, scope: scope) }
         }
     }
 

@@ -5,6 +5,7 @@ public enum PortClientError: LocalizedError {
     case commandFailed(status: Int32, stderr: String)
     case unparseable(String)
     case invalidName(String)
+    case invalidPattern(String)
     case cancelled
 
     public var errorDescription: String? {
@@ -13,6 +14,8 @@ public enum PortClientError: LocalizedError {
             return "Couldn't read information for \(name)."
         case .invalidName(let name):
             return "\(name) is not a valid port name."
+        case .invalidPattern(let pattern):
+            return "\(pattern) is not a valid regular expression."
         case .cancelled:
             return "The operation was cancelled."
         case .notInstalled(let path):
@@ -42,11 +45,15 @@ public struct PortClient: Sendable {
         return PortListParser.parseInstalled(output)
     }
 
-    /// Names of available ports whose name or description matches `term`.
-    public func search(_ term: String) async throws -> [String] {
+    /// Names of available ports matching `term` under `scope`, best matches first.
+    public func search(_ term: String, scope: SearchScope = .name) async throws -> [String] {
         let term = term.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !term.isEmpty else { return [] }
-        return PortInfoParser.parseNames(try await run(["-q", "search", "--line", "--", term]))
+        if scope == .regex, (try? NSRegularExpression(pattern: term)) == nil {
+            throw PortClientError.invalidPattern(term)
+        }
+        let output = try await run(["-q", "search", "--line"] + scope.flags + ["--", term])
+        return SearchRanking.sorted(PortInfoParser.parseNames(output), for: term)
     }
 
     public func info(for name: String) async throws -> PortInfo {
