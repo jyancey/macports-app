@@ -6,7 +6,7 @@ import SwiftUI
 struct MacPortsLogo: View {
     var size: CGFloat = 24
 
-    private static let image: NSImage? = {
+    static let image: NSImage? = {
         for ext in ["svg", "pdf", "png"] {
             if let url = Bundle.module.url(forResource: "MacPortsLogo", withExtension: ext),
                let image = NSImage(contentsOf: url) {

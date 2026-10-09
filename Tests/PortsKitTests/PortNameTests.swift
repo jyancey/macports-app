@@ -21,3 +21,10 @@ struct PortNameTests {
     #expect(!PortClient.isSafePath("/tmp/a;rm"))
     #expect(!PortClient.isSafePath(""))
 }
+
+@Test func versionSpecsAreValidated() {
+    #expect(PortClient.isValidVersionSpec("@1.2.3_0+universal+x11"))
+    #expect(!PortClient.isValidVersionSpec("1.2"))
+    #expect(!PortClient.isValidVersionSpec("@1 ; rm"))
+    #expect(!PortClient.isValidVersionSpec("@$(x)"))
+}

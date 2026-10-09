@@ -106,10 +106,30 @@ public struct PortClient: Sendable {
         try await runStreaming(action: "upgrade", name: "outdated", onOutput: onOutput)
     }
 
+    /// Uninstalls one specific installed version of a port (used to remove inactive versions).
+    public func uninstall(_ port: InstalledPort,
+                          onOutput: @escaping @MainActor @Sendable (String) -> Void) async throws {
+        guard PortClient.isValidPortName(port.name) else { throw PortClientError.invalidName(port.name) }
+        let spec = "@\(port.version)_\(port.revision)" + port.variants.map { "+" + $0 }.joined()
+        guard PortClient.isValidVersionSpec(spec) else { throw PortClientError.invalidName(spec) }
+        try await runStreaming(action: "uninstall", arguments: "\(port.name) \(spec)", onOutput: onOutput)
+    }
+
+    /// Uninstalls every inactive version of every port.
+    public func uninstallInactive(onOutput: @escaping @MainActor @Sendable (String) -> Void) async throws {
+        try await runStreaming(action: "uninstall", name: "inactive", onOutput: onOutput)
+    }
+
     private func runStreaming(action: String, name: String,
                               onOutput: @escaping @MainActor @Sendable (String) -> Void) async throws {
-        guard isAvailable else { throw PortClientError.notInstalled(executableURL.path) }
         guard PortClient.isValidPortName(name) else { throw PortClientError.invalidName(name) }
+        try await runStreaming(action: action, arguments: name, onOutput: onOutput)
+    }
+
+    /// `arguments` must already be validated by the caller; it is interpolated into a shell command.
+    private func runStreaming(action: String, arguments: String,
+                              onOutput: @escaping @MainActor @Sendable (String) -> Void) async throws {
+        guard isAvailable else { throw PortClientError.notInstalled(executableURL.path) }
 
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("ports-app-\(UUID().uuidString)", isDirectory: true)
@@ -122,7 +142,7 @@ public struct PortClient: Sendable {
             throw PortClientError.invalidName(log.path)
         }
 
-        let command = "\(executableURL.path) -N -v \(action) \(name) > \(log.path) 2>&1"
+        let command = "\(executableURL.path) -N -v \(action) \(arguments) > \(log.path) 2>&1"
         let tail = Task.detached { await PortClient.tail(log, onOutput: onOutput) }
         do {
             try await runPrivileged(command)
@@ -133,6 +153,10 @@ public struct PortClient: Sendable {
         }
         tail.cancel()
         await tail.value
+    }
+
+    static func isValidVersionSpec(_ spec: String) -> Bool {
+        spec.hasPrefix("@") && spec.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || "@._+-".contains($0)) }
     }
 
     static func isValidPortName(_ name: String) -> Bool {
