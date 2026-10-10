@@ -57,3 +57,19 @@ import Testing
         #expect(PortInfoParser.parseDependencyTree("Error: not found\n").isEmpty)
     }
 }
+
+@Suite struct PortSelectTests {
+    @Test func parsesSummary() {
+        let out = """
+        Name       Selected     Options
+        ====       ========     =======
+        clang      mp-clang-23  mp-clang-19 mp-clang-23 none
+        httpx      none         py314-httpx none
+        """
+        let groups = PortSelectParser.parse(out)
+        #expect(groups.count == 2)
+        #expect(groups[0].name == "clang" && groups[0].selected == "mp-clang-23" && groups[0].isSet)
+        #expect(groups[0].options == ["mp-clang-19", "mp-clang-23", "none"])
+        #expect(!groups[1].isSet)
+    }
+}

@@ -167,6 +167,19 @@ public struct PortClient: Sendable {
         try await runStreaming(action: "uninstall", name: "inactive", onOutput: onOutput)
     }
 
+    /// Every `port select` group with its current selection (`port select --summary`).
+    public func selections() async throws -> [PortSelectGroup] {
+        PortSelectParser.parse(try await run(["select", "--summary"]))
+    }
+
+    /// Selects `option` for `group`; "none" unsets it (`port select --set`).
+    public func setSelection(group: String, option: String,
+                             onOutput: @escaping @MainActor @Sendable (String) -> Void) async throws {
+        guard PortClient.isValidPortName(group) else { throw PortClientError.invalidName(group) }
+        guard PortClient.isValidPortName(option) else { throw PortClientError.invalidName(option) }
+        try await runStreaming(action: "select", arguments: "--set \(group) \(option)", onOutput: onOutput)
+    }
+
     /// Updates MacPorts itself and syncs the ports tree (`port selfupdate`).
     public func selfupdate(onOutput: @escaping @MainActor @Sendable (String) -> Void) async throws {
         try await runStreaming(action: "selfupdate", arguments: "", onOutput: onOutput)

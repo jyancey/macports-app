@@ -10,8 +10,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 enum AppInfo {
     static let name = "MacPorts"
-    static let version = "0.1.0"
-    static let build = "1"
+    // Fallback used when run unbundled (`swift run`); packaged builds read Info.plist.
+    static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.3"
+    static let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0.1.3"
     static let author = "John Yancey"
     static let copyright = "© 2026 John Yancey"
 }
@@ -54,7 +55,7 @@ struct PortsApp: App {
         var options: [NSApplication.AboutPanelOptionKey: Any] = [
             .applicationName: AppInfo.name,
             .applicationVersion: AppInfo.version,
-            .version: AppInfo.build,
+            .version: AppInfo.build == AppInfo.version ? "" : AppInfo.build,
             .credits: credits,
             NSApplication.AboutPanelOptionKey(rawValue: "Copyright"): AppInfo.copyright,
         ]
