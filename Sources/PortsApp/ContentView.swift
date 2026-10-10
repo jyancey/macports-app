@@ -245,6 +245,18 @@ struct ContentView: View {
         }
     }
 
+    /// Jumps to a port: the Installed tab if it's installed, otherwise Available.
+    private func openPort(_ name: String) {
+        if let port = model.ports.first(where: { $0.name == name && $0.isActive })
+            ?? model.ports.first(where: { $0.name == name }) {
+            mode = .installed
+            selection = port.id
+        } else {
+            mode = .available
+            searchSelection = name
+        }
+    }
+
     private var split: some View {
         NavigationSplitView {
             List(BrowseMode.allCases, selection: $mode) { item in
@@ -259,12 +271,14 @@ struct ContentView: View {
                 PortDetailView(name: name,
                                isInstalled: model.ports.contains { $0.name == name },
                                onInstalled: { await model.load() },
-                               onUninstalled: { await model.load() })
+                               onUninstalled: { await model.load() },
+                               onOpenPort: openPort)
             } else if currentMode == .outdated, let port = outdatedModel.ports.first(where: { $0.id == outdatedSelection }) {
                 PortDetailView(name: port.name,
                                subtitle: "\(port.installedVersion) → \(port.availableVersion)",
                                onUpgrade: { await refreshAll() },
-                               onUninstalled: { await refreshAll() })
+                               onUninstalled: { await refreshAll() },
+                               onOpenPort: openPort)
             } else if currentMode == .inactive, let port = model.ports.first(where: { $0.id == inactiveSelection }) {
                 ContentUnavailableView {
                     Label(port.name, systemImage: "archivebox")
@@ -276,7 +290,8 @@ struct ContentView: View {
             } else if currentMode == .installed, let port = selectedPort {
                 PortDetailView(name: port.name,
                                subtitle: "\(port.version)_\(port.revision)" + (port.isActive ? "" : " (inactive)"),
-                               onUninstalled: { await model.load() })
+                               onUninstalled: { await model.load() },
+                               onOpenPort: openPort)
             } else if currentMode == .configuration {
                 ContentUnavailableView("Configuration", systemImage: "gearshape",
                                        description: Text("Settings apply to the next command you run."))
