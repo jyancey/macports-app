@@ -249,6 +249,7 @@ struct ContentView: View {
       outdatedModel.checkBinaries(installed: model.ports)
     }
     .task(id: mode) {
+      if !searchIsEnabled { search = "" }
       if currentMode == .outdated { await outdatedModel.load() }
       if currentMode == .selections { await selectionsModel.load() }
     }
@@ -470,6 +471,7 @@ struct ContentView: View {
           TextField(searchPrompt, text: $search)
             .textFieldStyle(.roundedBorder)
             .frame(width: 220)
+            .disabled(!searchIsEnabled)
             .onSubmit {
               guard currentMode == .available else { return }
               Task { await searchModel.search(search, scope: scope) }
@@ -546,8 +548,16 @@ struct ContentView: View {
   }
 
   private var searchPrompt: String {
-    currentMode == .available
+    guard searchIsEnabled else { return "" }
+    return currentMode == .available
       ? "Search available ports" : "Filter \(currentMode.rawValue.lowercased()) ports"
+  }
+
+  private var searchIsEnabled: Bool {
+    switch currentMode {
+    case .installed, .available, .outdated, .inactive: true
+    case .selections, .health, .configuration: false
+    }
   }
 
   @ViewBuilder private var list: some View {
@@ -689,10 +699,7 @@ struct ContentView: View {
         "No selection groups", systemImage: "arrow.left.arrow.right.circle",
         description: Text("Install ports such as clang or python to choose between versions."))
     } else {
-      let rows = selectionsModel.groups.filter {
-        search.isEmpty || $0.name.localizedCaseInsensitiveContains(search)
-      }
-      Table(rows, selection: $groupSelection) {
+      Table(selectionsModel.groups, selection: $groupSelection) {
         TableColumn("Group", value: \.name)
         TableColumn("Selected") {
           Text($0.selected).foregroundStyle($0.isSet ? .primary : .secondary)
