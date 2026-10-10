@@ -159,7 +159,7 @@ final class OutdatedModel {
 /// Sidebar destinations. Add a case here to add a tab.
 enum BrowseMode: String, CaseIterable, Identifiable {
     case installed = "Installed", available = "Available", outdated = "Outdated", inactive = "Inactive",
-         selections = "Selections", configuration = "Configuration"
+         selections = "Selections", health = "Health", configuration = "Configuration"
     var id: Self { self }
 
     var symbol: String {
@@ -169,6 +169,7 @@ enum BrowseMode: String, CaseIterable, Identifiable {
         case .outdated: "arrow.triangle.2.circlepath"
         case .inactive: "archivebox"
         case .selections: "arrow.left.arrow.right.circle"
+        case .health: "stethoscope"
         case .configuration: "gearshape"
         }
     }
@@ -355,6 +356,9 @@ struct ContentView: View {
                                onOpenPort: openPort)
             } else if currentMode == .selections, let group = selectionsModel.groups.first(where: { $0.id == groupSelection }) {
                 SelectionDetailView(group: group) { await selectionsModel.load() }
+            } else if currentMode == .health {
+                ContentUnavailableView("Health", systemImage: "stethoscope",
+                                       description: Text("Check your MacPorts environment and reclaim disk space."))
             } else if currentMode == .configuration {
                 ContentUnavailableView("Configuration", systemImage: "gearshape",
                                        description: Text("Settings apply to the next command you run."))
@@ -369,7 +373,7 @@ struct ContentView: View {
                 }
             }
         }
-        .navigationTitle(currentMode == .configuration ? "Configuration" : "\(currentMode.rawValue) Ports")
+        .navigationTitle(currentMode == .configuration ? "Configuration" : currentMode == .health ? "Health" : "\(currentMode.rawValue) Ports")
         .navigationSubtitle(subtitle)
         .toolbar {
             ToolbarItem {
@@ -404,6 +408,7 @@ struct ContentView: View {
         case .outdated: "\(outdatedModel.ports.count) outdated"
         case .inactive: "\(inactivePorts.count) inactive"
         case .selections: "\(selectionsModel.groups.count) groups"
+        case .health: "Environment checks"
         case .configuration: "Settings"
         }
     }
@@ -411,6 +416,9 @@ struct ContentView: View {
     @ViewBuilder private var list: some View {
         if currentMode == .configuration {
             ConfigurationView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if currentMode == .health {
+            HealthView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             searchableList
@@ -425,7 +433,7 @@ struct ContentView: View {
             case .outdated: outdatedList
             case .inactive: inactiveList
             case .selections: selectionsList
-            case .configuration: EmptyView()
+            case .health, .configuration: EmptyView()
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

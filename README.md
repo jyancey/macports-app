@@ -12,6 +12,7 @@ Early development. Currently implemented:
 - [x] Full recursive dependency tree in the port detail
 - [x] Pre-built column and filter on the Outdated tab
 - [x] Selections tab: see and change `port select` versions (clang, python, …)
+- [x] Health tab: run `port diagnose` and launch `port reclaim` in Terminal
 - [x] Search available ports (Available tab: type a term, press Return)
 - [x] Install an available port (asks for your administrator password)
 - [x] Live activity log (bottom panel, toggle from the toolbar) streaming install output
@@ -28,7 +29,6 @@ Early development. Currently implemented:
 - [x] Resizable Activity pane (height is remembered)
 - [x] Setting to auto-open the Activity pane when a command starts (Configuration tab, on by default)
 - [x] MacPorts info in the Configuration tab (version, prefix, paths, installed count, sources)
-- [x] Diagnose button (`port diagnose`) in the Configuration tab
 - [x] Custom `port` executable path in the Configuration tab (for MacPorts installed outside /opt/local)
 - [x] Add and remove ports sources (sources.conf) from the Configuration tab
 - [x] Help menu with a quick guide and MacPorts links

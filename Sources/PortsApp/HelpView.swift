@@ -15,6 +15,9 @@ struct HelpView: View {
                     "Choose variants in the detail pane before installing. A package icon marks ports that have a pre-built binary for your platform. In search results, the Pre-built column shows a green seal for ports with a binary for this Mac (first 100 results), and the toolbar's \"Pre-built only\" toggle filters to them.",
                     "Status in the Available table updates live (Downloading…, Building…, Installing…).",
                 ])
+                section("Health", [
+                    "The Health tab runs `port diagnose` and lists any warnings. Reclaim in Terminal opens Terminal running `sudo port reclaim`, which asks before removing anything.",
+                ])
                 section("Selections", [
                     "The Selections tab lists `port select` groups (clang, python, gcc…) and which version each uses. Choose a group, then Select a version or Unset it (asks for your administrator password).",
                 ])
@@ -28,7 +31,7 @@ struct HelpView: View {
                 ])
                 section("Configuration", [
                     "Verbose output shows full port output but is slower.",
-                    "Self-update and Sync refresh MacPorts and the ports tree; Diagnose runs `port diagnose`.",
+                    "Self-update and Sync refresh MacPorts and the ports tree.",
                     "Commands that change your system ask for your administrator password.",
                 ])
             }
