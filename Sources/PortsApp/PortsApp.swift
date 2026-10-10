@@ -12,9 +12,9 @@ enum AppInfo {
   static let name = "MacPortsApp"
   // Fallback used when run unbundled (`swift run`); packaged builds read Info.plist.
   static let version =
-    Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.5"
+    Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.6"
   static let build =
-    Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0.1.5"
+    Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0.1.6"
   static let author = "John Yancey"
   static let copyright = "© 2026 John Yancey"
 }
