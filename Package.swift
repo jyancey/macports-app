@@ -2,12 +2,14 @@
 import PackageDescription
 
 let package = Package(
-    name: "PortsApp",
-    platforms: [.macOS(.v26)],
-    targets: [
-        .target(name: "PortsKit"),
-        .executableTarget(name: "PortsApp", dependencies: ["PortsKit"],
-                          resources: [.process("Resources")]),
-        .testTarget(name: "PortsKitTests", dependencies: ["PortsKit"]),
-    ]
+  name: "MacPortsApp",
+  platforms: [.macOS(.v26)],
+  targets: [
+    .target(name: "PortsKit"),
+    .executableTarget(
+      name: "MacPortsApp", dependencies: ["PortsKit"],
+      path: "Sources/PortsApp",
+      resources: [.process("Resources")]),
+    .testTarget(name: "PortsKitTests", dependencies: ["PortsKit"]),
+  ]
 )
