@@ -46,6 +46,41 @@ public struct MacPortsInfo: Sendable, Equatable {
   }
 }
 
+public struct RegistryStatus: Sendable, Equatable {
+  public enum Integrity: Sendable, Equatable {
+    case valid
+    case invalid(String)
+    case unavailable(String)
+  }
+
+  public let path: String
+  public let exists: Bool
+  public let readable: Bool
+  public let integrity: Integrity
+
+  public init(path: String, exists: Bool, readable: Bool, integrity: Integrity) {
+    self.path = path
+    self.exists = exists
+    self.readable = readable
+    self.integrity = integrity
+  }
+
+  public var isHealthy: Bool {
+    exists && readable && integrity == .valid
+  }
+
+  public static func parseIntegrityOutput(_ output: String, status: Int32) -> Integrity {
+    let lines = output.split(whereSeparator: \.isNewline).map {
+      $0.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    if status == 0, lines.count == 1, lines[0].lowercased() == "ok" {
+      return .valid
+    }
+    let message = lines.joined(separator: "\n")
+    return .invalid(message.isEmpty ? "SQLite integrity check failed." : message)
+  }
+}
+
 extension MacPortsInfo {
   /// A source URL is written into sources.conf and a privileged shell
   /// command, so keep it conservative.
@@ -114,5 +149,54 @@ extension PortClient {
       prefix: conf["prefix"] ?? prefix, dataPath: dataPath,
       applicationsDir: conf["applications_dir"] ?? "/Applications/MacPorts",
       sources: sources, sourcesConfPath: sourcesConf, installedCount: count, lastSync: sync)
+  }
+
+  public func registryStatus(for dataPath: String) async -> RegistryStatus {
+    let path = dataPath + "/registry/registry.db"
+    let fm = FileManager.default
+    let exists = fm.fileExists(atPath: path)
+    let readable = exists && fm.isReadableFile(atPath: path)
+    guard exists, readable else {
+      return RegistryStatus(
+        path: path, exists: exists, readable: readable,
+        integrity: .unavailable(
+          exists ? "The registry database is not readable." : "The registry database is missing."))
+    }
+
+    let sqlitePath = "/usr/bin/sqlite3"
+    guard fm.isExecutableFile(atPath: sqlitePath) else {
+      return RegistryStatus(
+        path: path, exists: exists, readable: readable,
+        integrity: .unavailable("The system sqlite3 command is unavailable."))
+    }
+
+    do {
+      let result = try await Task.detached {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: sqlitePath)
+        process.arguments = ["-readonly", path, "PRAGMA quick_check;"]
+        let output = Pipe()
+        let error = Pipe()
+        process.standardOutput = output
+        process.standardError = error
+        try process.run()
+        let outputData = output.fileHandleForReading.readDataToEndOfFile()
+        let errorData = error.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return (
+          status: process.terminationStatus,
+          output: String(decoding: outputData, as: UTF8.self),
+          error: String(decoding: errorData, as: UTF8.self)
+        )
+      }.value
+      let integrity = RegistryStatus.parseIntegrityOutput(
+        result.status == 0 ? result.output : result.error, status: result.status)
+      return RegistryStatus(
+        path: path, exists: exists, readable: readable, integrity: integrity)
+    } catch {
+      return RegistryStatus(
+        path: path, exists: exists, readable: readable,
+        integrity: .unavailable(error.localizedDescription))
+    }
   }
 }

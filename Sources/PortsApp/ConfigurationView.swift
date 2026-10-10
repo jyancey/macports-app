@@ -3,6 +3,9 @@ import SwiftUI
 
 /// App preferences and facts about the local MacPorts installation.
 struct ConfigurationView: View {
+  @Binding private var search: String
+  @Binding private var scope: SearchScope
+  private let onSearch: () -> Void
   @AppStorage(PortClient.verboseDefaultsKey) private var verbose = false
   @AppStorage(ActivityLog.autoOpenKey) private var autoOpen = true
   @Environment(ActivityLog.self) private var activity
@@ -13,6 +16,14 @@ struct ConfigurationView: View {
   @State private var sourceToRemove: String?
   @State private var info: MacPortsInfo?
   @State private var failure: String?
+
+  init(
+    search: Binding<String>, scope: Binding<SearchScope>, onSearch: @escaping () -> Void
+  ) {
+    _search = search
+    _scope = scope
+    self.onSearch = onSearch
+  }
 
   var body: some View {
     Form {
@@ -32,6 +43,17 @@ struct ConfigurationView: View {
           row("Version", info.version)
           row("Prefix", info.prefix)
           row("Data directory", info.dataPath)
+          let registryPath = info.dataPath + "/registry/registry.db"
+          row("Registry database", registryPath)
+          LabeledContent("Registry status") {
+            Label(
+              FileManager.default.isReadableFile(atPath: registryPath) ? "Present and readable" : "Missing or unreadable",
+              systemImage: FileManager.default.isReadableFile(atPath: registryPath)
+                ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
+            )
+            .foregroundStyle(
+              FileManager.default.isReadableFile(atPath: registryPath) ? .green : .orange)
+          }
           row("Applications", info.applicationsDir)
           row("Installed ports", "\(info.installedCount)")
           row(
@@ -74,25 +96,6 @@ struct ConfigurationView: View {
         .font(.caption)
         .foregroundStyle(.secondary)
       }
-      Section("Maintenance") {
-        HStack {
-          Button("Self-update", systemImage: "arrow.triangle.2.circlepath") {
-            runMaintenance("sudo port selfupdate", name: "selfupdate") {
-              try await $0.selfupdate(onOutput: $1)
-            }
-          }
-          Button("Sync", systemImage: "arrow.down.circle") {
-            runMaintenance("sudo port sync", name: "sync") { try await $0.sync(onOutput: $1) }
-          }
-        }
-        .disabled(activity.isRunning)
-        Text(
-          "Self-update upgrades MacPorts itself and refreshes the ports tree. "
-            + "Sync refreshes the ports tree only. Both use macOS administrator authorization."
-        )
-        .font(.caption)
-        .foregroundStyle(.secondary)
-      }
     }
     .formStyle(.grouped)
     .confirmationDialog(
@@ -110,6 +113,48 @@ struct ConfigurationView: View {
     .task {
       pathDraft = PortClient.configuredExecutablePath
       await loadInfo()
+    }
+    .toolbar {
+      ToolbarItemGroup {
+        Button("Self-update", systemImage: "arrow.triangle.2.circlepath") {
+          runMaintenance("sudo port selfupdate", name: "selfupdate") {
+            try await $0.selfupdate(onOutput: $1)
+          }
+        }
+        .help("Upgrade MacPorts and refresh the ports tree")
+        .disabled(activity.isRunning)
+        Button("Sync", systemImage: "arrow.down.circle") {
+          runMaintenance("sudo port sync", name: "sync") { try await $0.sync(onOutput: $1) }
+        }
+        .help("Refresh the ports tree without upgrading MacPorts")
+        .disabled(activity.isRunning)
+      }
+      ToolbarItem(placement: .primaryAction) {
+        HStack(spacing: 8) {
+          TextField("Search", text: $search)
+            .textFieldStyle(.roundedBorder)
+            .frame(width: 220)
+            .disabled(true)
+            .onSubmit(onSearch)
+          Menu {
+            ForEach(SearchScope.allCases) { searchScope in
+              Button {
+                scope = searchScope
+              } label: {
+                if scope == searchScope {
+                  Label(searchScope.rawValue, systemImage: "checkmark")
+                } else {
+                  Text(searchScope.rawValue)
+                }
+              }
+            }
+          } label: {
+            Label(scope.rawValue, systemImage: "line.3.horizontal.decrease.circle")
+          }
+          .menuStyle(.borderedButton)
+          .disabled(true)
+        }
+      }
     }
   }
 

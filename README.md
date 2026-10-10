@@ -32,6 +32,7 @@ Early development. Currently implemented:
 - [x] Custom `port` executable path in the Configuration tab (for MacPorts installed outside /opt/local)
 - [x] Add and remove ports sources (sources.conf) from the Configuration tab
 - [x] Help menu with a quick guide and MacPorts links
+- [x] Registry database path/status in Configuration and read-only registry integrity check in Health
 
 ## App icon
 

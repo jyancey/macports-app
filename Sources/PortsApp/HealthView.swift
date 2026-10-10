@@ -5,8 +5,10 @@ import SwiftUI
 /// in Terminal.
 struct HealthView: View {
   @State private var findings: [DiagnosticFinding]?
+  @State private var registryStatus: RegistryStatus?
   @State private var failure: String?
   @State private var isChecking = false
+  @State private var isCheckingRegistry = false
 
   var body: some View {
     Form {
@@ -15,6 +17,35 @@ struct HealthView: View {
           Button("Run Diagnose", systemImage: "stethoscope") { Task { await check() } }
             .disabled(isChecking)
           if isChecking { ProgressView().controlSize(.small) }
+        }
+        Section("Registry integrity") {
+          HStack {
+            Button("Check Registry", systemImage: "checkmark.shield") {
+              Task { await checkRegistry() }
+            }
+            .disabled(isCheckingRegistry)
+            if isCheckingRegistry { ProgressView().controlSize(.small) }
+          }
+          if let registryStatus {
+            LabeledContent("Database") {
+              Text(registryStatus.path).textSelection(.enabled)
+                .multilineTextAlignment(.trailing)
+            }
+            switch registryStatus.integrity {
+            case .valid:
+              Label("Registry is valid.", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+            case .invalid(let message):
+              Label(message, systemImage: "xmark.octagon.fill")
+                .foregroundStyle(.red)
+            case .unavailable(let message):
+              Label(message, systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+            }
+          } else {
+            Text("Runs a read-only SQLite integrity check on the MacPorts registry.")
+              .font(.caption).foregroundStyle(.secondary)
+          }
         }
         if let failure {
           Label(failure, systemImage: "xmark.octagon").foregroundStyle(.red)
@@ -68,5 +99,18 @@ struct HealthView: View {
       findings = try await PortClient().diagnoseFindings()
       failure = nil
     } catch { failure = error.localizedDescription }
+  }
+
+  private func checkRegistry() async {
+    isCheckingRegistry = true
+    defer { isCheckingRegistry = false }
+    do {
+      let info = try await PortClient().macPortsInfo()
+      registryStatus = await PortClient().registryStatus(for: info.dataPath)
+    } catch {
+      registryStatus = RegistryStatus(
+        path: "Unknown", exists: false, readable: false,
+        integrity: .unavailable(error.localizedDescription))
+    }
   }
 }

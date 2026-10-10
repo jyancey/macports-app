@@ -241,6 +241,9 @@ struct ContentView: View {
   @State private var isSidebarVisible = true
 
   private var currentMode: BrowseMode { mode ?? .installed }
+  private var isSinglePaneMode: Bool {
+    currentMode == .health || currentMode == .configuration
+  }
 
   var body: some View {
     split
@@ -333,23 +336,105 @@ struct ContentView: View {
       }
 
       VStack(spacing: 0) {
-        HStack(spacing: 0) {
-          VStack(spacing: 0) {
-            paneHeader
-            list
+        Group {
+          if isSinglePaneMode {
+            mainPane
+          } else {
+            HStack(spacing: 0) {
+              mainPane
+                .frame(minWidth: 380, idealWidth: 460, maxHeight: .infinity)
+
+              Divider()
+
+              detailPane
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
           }
-          .frame(minWidth: 380, idealWidth: 460, maxHeight: .infinity)
-
-          Divider()
-
-          detailPane
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         if activity.isVisible {
           activityPane
         }
       }
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .toolbar {
+      ToolbarItem {
+        Button(
+          isSidebarVisible ? "Hide Sidebar" : "Show Sidebar",
+          systemImage: "sidebar.left")
+        {
+          isSidebarVisible.toggle()
+        }
+        .help(isSidebarVisible ? "Hide the navigation sidebar" : "Show the navigation sidebar")
+      }
+      ToolbarItem {
+        Button("Activity Log", systemImage: "terminal") { activity.isVisible.toggle() }
+          .help("Show or hide the activity log")
+      }
+      if currentMode == .available {
+        ToolbarItem {
+          Toggle("Pre-built only", systemImage: "checkmark.seal", isOn: $prebuiltOnly)
+            .help(
+              "Show only results that have a pre-built binary for this Mac (first 100 results are checked)"
+            )
+        }
+      }
+      if currentMode == .outdated {
+        ToolbarItem {
+          Toggle("Pre-built only", systemImage: "checkmark.seal", isOn: $prebuiltOnly)
+            .help("Show only updates that have a pre-built binary for this Mac")
+        }
+        ToolbarItem { upgradeAllButton }
+      }
+      if currentMode == .inactive { ToolbarItemGroup { removeInactiveButtons } }
+      ToolbarItem {
+        Button("Refresh", systemImage: "arrow.clockwise") { Task { await refreshAll() } }
+          .disabled(model.isLoading || outdatedModel.isLoading)
+      }
+      if currentMode != .configuration {
+        ToolbarItem(placement: .primaryAction) {
+        HStack(spacing: 8) {
+          TextField(searchPrompt, text: $search)
+            .textFieldStyle(.roundedBorder)
+            .frame(width: 220)
+            .disabled(!searchIsEnabled)
+            .onSubmit {
+              guard currentMode == .available else { return }
+              Task { await searchModel.search(search, scope: scope) }
+            }
+          Menu {
+            ForEach(SearchScope.allCases) { searchScope in
+              Button {
+                scope = searchScope
+              } label: {
+                if scope == searchScope {
+                  Label(searchScope.rawValue, systemImage: "checkmark")
+                } else {
+                  Text(searchScope.rawValue)
+                }
+              }
+            }
+          } label: {
+            Label(scope.rawValue, systemImage: "line.3.horizontal.decrease.circle")
+          }
+          .menuStyle(.borderedButton)
+          .disabled(currentMode != .available)
+          .help(
+            currentMode == .available
+              ? "Choose how to search available ports"
+              : "Search scopes are available when searching available ports"
+          )
+        }
+      }
+      }
+    }
+  }
+
+  private var mainPane: some View {
+    VStack(spacing: 0) {
+      paneHeader
+      list
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
   }
@@ -432,75 +517,6 @@ struct ContentView: View {
         }
       }
     }
-    .toolbar {
-      ToolbarItem {
-        Button(
-          isSidebarVisible ? "Hide Sidebar" : "Show Sidebar",
-          systemImage: "sidebar.left")
-        {
-          isSidebarVisible.toggle()
-        }
-        .help(isSidebarVisible ? "Hide the navigation sidebar" : "Show the navigation sidebar")
-      }
-      ToolbarItem {
-        Button("Activity Log", systemImage: "terminal") { activity.isVisible.toggle() }
-          .help("Show or hide the activity log")
-      }
-      if currentMode == .available {
-        ToolbarItem {
-          Toggle("Pre-built only", systemImage: "checkmark.seal", isOn: $prebuiltOnly)
-            .help(
-              "Show only results that have a pre-built binary for this Mac (first 100 results are checked)"
-            )
-        }
-      }
-      if currentMode == .outdated {
-        ToolbarItem {
-          Toggle("Pre-built only", systemImage: "checkmark.seal", isOn: $prebuiltOnly)
-            .help("Show only updates that have a pre-built binary for this Mac")
-        }
-        ToolbarItem { upgradeAllButton }
-      }
-      if currentMode == .inactive { ToolbarItemGroup { removeInactiveButtons } }
-      ToolbarItem {
-        Button("Refresh", systemImage: "arrow.clockwise") { Task { await refreshAll() } }
-          .disabled(model.isLoading || outdatedModel.isLoading)
-      }
-      ToolbarItem {
-        HStack(spacing: 8) {
-          TextField(searchPrompt, text: $search)
-            .textFieldStyle(.roundedBorder)
-            .frame(width: 220)
-            .disabled(!searchIsEnabled)
-            .onSubmit {
-              guard currentMode == .available else { return }
-              Task { await searchModel.search(search, scope: scope) }
-            }
-          Menu {
-            ForEach(SearchScope.allCases) { searchScope in
-              Button {
-                scope = searchScope
-              } label: {
-                if scope == searchScope {
-                  Label(searchScope.rawValue, systemImage: "checkmark")
-                } else {
-                  Text(searchScope.rawValue)
-                }
-              }
-            }
-          } label: {
-            Label(scope.rawValue, systemImage: "line.3.horizontal.decrease.circle")
-          }
-          .menuStyle(.borderedButton)
-          .disabled(currentMode != .available)
-          .help(
-            currentMode == .available
-              ? "Choose how to search available ports"
-              : "Search scopes are available when searching available ports"
-          )
-        }
-      }
-    }
   }
 
   @ViewBuilder
@@ -562,7 +578,13 @@ struct ContentView: View {
 
   @ViewBuilder private var list: some View {
     if currentMode == .configuration {
-      ConfigurationView()
+      ConfigurationView(
+        search: $search,
+        scope: $scope,
+        onSearch: {
+          guard currentMode == .available else { return }
+          Task { await searchModel.search(search, scope: scope) }
+        })
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     } else if currentMode == .health {
       HealthView()
