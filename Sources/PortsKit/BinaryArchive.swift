@@ -54,6 +54,36 @@ public enum BinaryArchive {
         return suffixes.contains { listing.contains(base + $0) }
     }
 
+    /// True when `listing` has any archive of `name` for `platform`/`arch` (or platform-independent),
+    /// whatever its version or variants. A cheap hint for lists; the detail view checks exactly.
+    public static func hasAnyArchive(in listing: [String], name: String, platform: String, arch: String) -> Bool {
+        let suffixes = [
+            ".\(platform).\(arch).tbz2", ".darwin_any.noarch.tbz2", ".any_any.noarch.tbz2",
+            ".darwin_any.\(arch).tbz2",
+        ]
+        return listing.contains { file in
+            file.hasPrefix(name + "-") && suffixes.contains { file.hasSuffix($0) }
+        }
+    }
+
+    /// Whether the archive site has any build of `name` for this Mac. Best effort: failures are `.unknown`.
+    public static func anyBuildAvailability(name: String) async -> BinaryAvailability {
+        guard PortClient.isValidPortName(name) else { return .unknown }
+        var request = URLRequest(url: archiveSite.appendingPathComponent(name, isDirectory: true))
+        request.timeoutInterval = 10
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else { return .unknown }
+            if http.statusCode == 404 { return .unavailable }
+            guard http.statusCode == 200 else { return .unknown }
+            let (platform, arch) = currentPlatform()
+            return hasAnyArchive(in: parseListing(String(decoding: data, as: UTF8.self)),
+                                 name: name, platform: platform, arch: arch) ? .available : .unavailable
+        } catch {
+            return .unknown
+        }
+    }
+
     /// Looks the port up on the archive site. Best effort: any failure is `.unknown`.
     public static func availability(
         name: String, version: String, revision: Int, variants: [String]
