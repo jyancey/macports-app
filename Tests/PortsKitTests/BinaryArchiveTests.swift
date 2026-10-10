@@ -27,4 +27,12 @@ struct BinaryArchiveTests {
         #expect(has("GraphicsMagick", "1.3.45", 3, ["q8"]))
         #expect(!has("GraphicsMagick", "1.3.45", 3, []))
     }
+
+    @Test func anyArchiveIgnoresVersionButNotPlatform() {
+        let names = BinaryArchive.parseListing(listing)
+        #expect(BinaryArchive.hasAnyArchive(in: names, name: "zlib", platform: "darwin_27", arch: "arm64"))
+        #expect(BinaryArchive.hasAnyArchive(in: names, name: "GraphicsMagick", platform: "darwin_27", arch: "arm64"))
+        #expect(!BinaryArchive.hasAnyArchive(in: names, name: "zlib", platform: "darwin_25", arch: "arm64"))
+        #expect(!BinaryArchive.hasAnyArchive(in: names, name: "zlib-extra", platform: "darwin_27", arch: "arm64"))
+    }
 }
