@@ -358,25 +358,6 @@ public struct PortClient: Sendable {
         }.value
     }
 
-    /// Runs `port diagnose` (no privileges needed) and returns its combined output.
-    /// Diagnose reports problems as warnings, so a non-zero exit is not treated as failure.
-    public func diagnose() async throws -> String {
-        guard isAvailable else { throw PortClientError.notInstalled(executableURL.path) }
-        let url = executableURL
-        return try await Task.detached {
-            let process = Process()
-            process.executableURL = url
-            process.arguments = ["diagnose", "--quiet"]
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = pipe
-            try process.run()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            return String(decoding: data, as: UTF8.self)
-        }.value
-    }
-
     func run(_ arguments: [String], mergeStderr: Bool = false) async throws -> String {
         guard isAvailable else { throw PortClientError.notInstalled(executableURL.path) }
         let url = executableURL

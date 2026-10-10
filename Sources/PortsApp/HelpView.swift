@@ -31,7 +31,7 @@ struct HelpView: View {
                 ])
                 section("Configuration", [
                     "Verbose output shows full port output but is slower.",
-                    "Self-update and Sync refresh MacPorts and the ports tree; Diagnose runs `port diagnose`.",
+                    "Self-update and Sync refresh MacPorts and the ports tree.",
                     "Commands that change your system ask for your administrator password.",
                 ])
             }

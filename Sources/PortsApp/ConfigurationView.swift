@@ -83,20 +83,6 @@ struct ConfigurationView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            Section("Troubleshooting") {
-                Button("Diagnose", systemImage: "stethoscope") {
-                    Task {
-                        await activity.run("port diagnose", name: "diagnose") { out in
-                            let text = try await PortClient().diagnose()
-                            out(text.isEmpty ? "No problems found.\n" : text)
-                        }
-                    }
-                }
-                .disabled(activity.isRunning)
-                Text("Runs port diagnose to check your environment for common problems. Results appear in the Activity pane.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
         }
         .formStyle(.grouped)
         .confirmationDialog(
