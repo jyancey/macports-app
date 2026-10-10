@@ -29,10 +29,9 @@ Early development. Currently implemented:
 - [x] Add and remove ports sources (sources.conf) from the Configuration tab
 - [x] Help menu with a quick guide and MacPorts links
 
-## MacPorts logo
+## App icon
 
-The About panel and the empty state show the app icon (`Resources/AppIcon.png`). `MacPortsLogo` still
-loads `Sources/PortsApp/Resources/MacPortsLogo.svg` (`.pdf` / `.png` also work) for places that need the MacPorts mark.
+The About panel and the empty state show the app icon (`Resources/AppIcon.png`).
 
 ## Requirements
 
