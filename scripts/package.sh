@@ -1,19 +1,28 @@
 #!/bin/bash
-# Builds an Apple Silicon (arm64) MacPorts.app plus zip, pkg and dmg in dist/.
-# Usage: scripts/package.sh [version]   (defaults to the latest git tag, or 0.1.0)
+#
+#------------------------------------------------------------------------------
+# Builds an Apple Silicon (arm64) MacPortsApp.app plus zip, pkg and 
+# dmg in dist/.
+#
+# Usage:
+#  scripts/package.sh [version]
+#
+#  (defaults to the latest git tag, or 0.1.0)
+#------------------------------------------------------------------------------
+#
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 VERSION="${1:-$(git describe --tags --abbrev=0 2>/dev/null || echo 0.1.0)}"
 VERSION="${VERSION#v}"
-APP="dist/MacPorts.app"
+APP="dist/MacPortsApp.app"
 
 swift build -c release --arch arm64
 BIN_DIR="$(swift build -c release --arch arm64 --show-bin-path)"
 
 rm -rf dist
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$BIN_DIR/PortsApp" "$APP/Contents/MacOS/PortsApp"
+cp "$BIN_DIR/MacPortsApp" "$APP/Contents/MacOS/MacPortsApp"
 cp -R "$BIN_DIR"/*.bundle "$APP/Contents/Resources/"
 cp Design/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
@@ -22,10 +31,10 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key><string>MacPorts</string>
-    <key>CFBundleDisplayName</key><string>MacPorts</string>
+    <key>CFBundleName</key><string>MacPortsApp</string>
+    <key>CFBundleDisplayName</key><string>MacPortsApp</string>
     <key>CFBundleIdentifier</key><string>com.example.ports</string>
-    <key>CFBundleExecutable</key><string>PortsApp</string>
+    <key>CFBundleExecutable</key><string>MacPortsApp</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>${VERSION}</string>
@@ -41,16 +50,18 @@ PLIST
 codesign --force --deep --sign - "$APP"
 codesign --verify --deep --strict "$APP"
 
-ditto -c -k --keepParent "$APP" "dist/MacPorts-${VERSION}.zip"
-# Installer package: installs MacPorts.app into /Applications (unsigned; sign with a Developer ID Installer cert for distribution).
+ditto -c -k --keepParent "$APP" "dist/MacPortsApp-${VERSION}.zip"
+
+# Installer package: installs MacPortsApp.app into /Applications
+# (unsigned; sign with a Developer ID Installer cert for distribution).
 pkgbuild --component "$APP" --install-location /Applications \
-    --identifier com.example.ports --version "$VERSION" "dist/MacPorts-${VERSION}.pkg"
+    --identifier com.example.ports --version "$VERSION" "dist/MacPortsApp-${VERSION}.pkg"
 
 # Disk image with the app and an /Applications shortcut for drag-and-drop install.
 STAGE="$(mktemp -d)"
 cp -R "$APP" "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
-hdiutil create -quiet -volname "MacPorts" -srcfolder "$STAGE" -ov -format UDZO "dist/MacPorts-${VERSION}.dmg"
+hdiutil create -quiet -volname "MacPortsApp" -srcfolder "$STAGE" -ov -format UDZO "dist/MacPortsApp-${VERSION}.dmg"
 rm -rf "$STAGE"
 
-echo "Built $APP, dist/MacPorts-${VERSION}.zip, .pkg and .dmg"
+echo "Built $APP, dist/MacPortsApp-${VERSION}.zip, .pkg and .dmg"
