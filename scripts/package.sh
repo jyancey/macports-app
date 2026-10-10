@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds a release MacPorts.app and a zip of it in dist/.
+# Builds an Apple Silicon (arm64) MacPorts.app plus zip, pkg and dmg in dist/.
 # Usage: scripts/package.sh [version]   (defaults to the latest git tag, or 0.1.0)
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -8,8 +8,8 @@ VERSION="${1:-$(git describe --tags --abbrev=0 2>/dev/null || echo 0.1.0)}"
 VERSION="${VERSION#v}"
 APP="dist/MacPorts.app"
 
-swift build -c release --arch arm64 --arch x86_64
-BIN_DIR="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)"
+swift build -c release --arch arm64
+BIN_DIR="$(swift build -c release --arch arm64 --show-bin-path)"
 
 rm -rf dist
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
@@ -46,4 +46,11 @@ ditto -c -k --keepParent "$APP" "dist/MacPorts-${VERSION}.zip"
 pkgbuild --component "$APP" --install-location /Applications \
     --identifier com.example.ports --version "$VERSION" "dist/MacPorts-${VERSION}.pkg"
 
-echo "Built $APP, dist/MacPorts-${VERSION}.zip and dist/MacPorts-${VERSION}.pkg"
+# Disk image with the app and an /Applications shortcut for drag-and-drop install.
+STAGE="$(mktemp -d)"
+cp -R "$APP" "$STAGE/"
+ln -s /Applications "$STAGE/Applications"
+hdiutil create -quiet -volname "MacPorts" -srcfolder "$STAGE" -ov -format UDZO "dist/MacPorts-${VERSION}.dmg"
+rm -rf "$STAGE"
+
+echo "Built $APP, dist/MacPorts-${VERSION}.zip, .pkg and .dmg"
