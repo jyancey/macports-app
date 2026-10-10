@@ -60,6 +60,8 @@ struct PortDetailView: View {
     @State private var confirmUninstall = false
     @State private var checkingVariants = false
     @State private var showInstallOptions = false
+    /// Called when the user clicks a dependency name to jump to that port.
+    var onOpenPort: (String) -> Void = { _ in }
     @Environment(ActivityLog.self) private var activity
     @State private var model = PortDetailModel()
 
@@ -218,9 +220,9 @@ struct PortDetailView: View {
                     row("Variants", info.variants.map { "+" + $0 }.joined(separator: " "))
                     row("Platforms", info.platforms.joined(separator: ", "))
                     row("Sub-ports", info.subports.joined(separator: ", "))
-                    row("Library deps", info.libDependencies.joined(separator: ", "))
-                    row("Build deps", info.buildDependencies.joined(separator: ", "))
-                    row("Runtime deps", info.runDependencies.joined(separator: ", "))
+                    portRow("Library deps", info.libDependencies)
+                    portRow("Build deps", info.buildDependencies)
+                    portRow("Runtime deps", info.runDependencies)
                 }
             }
         }
@@ -229,7 +231,7 @@ struct PortDetailView: View {
     @ViewBuilder private var dependentsSection: some View {
         if case .loaded(let names) = model.dependents, !names.isEmpty {
             DisclosureGroup("Required by (\(names.count))") {
-                Text(names.joined(separator: ", ")).textSelection(.enabled)
+                portLinks(names)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -247,6 +249,33 @@ struct PortDetailView: View {
             }
         default:
             EmptyView()
+        }
+    }
+
+    /// Port names as clickable links that open the named port.
+    private func portLinks(_ names: [String]) -> some View {
+        var text = AttributedString()
+        for (index, name) in names.enumerated() {
+            if index > 0 { text.append(AttributedString(", ")) }
+            var part = AttributedString(name)
+            part.link = URL(string: "macports-port://" + name)
+            text.append(part)
+        }
+        return Text(text).environment(\.openURL, OpenURLAction { url in
+            guard url.scheme == "macports-port", let name = url.host(percentEncoded: false) else {
+                return .systemAction
+            }
+            onOpenPort(name)
+            return .handled
+        })
+    }
+
+    @ViewBuilder private func portRow(_ title: String, _ names: [String]) -> some View {
+        if !names.isEmpty {
+            GridRow {
+                label(title)
+                portLinks(names)
+            }
         }
     }
 
