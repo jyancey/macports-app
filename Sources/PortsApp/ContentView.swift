@@ -83,6 +83,26 @@ final class SearchModel {
 
 @MainActor
 @Observable
+final class SelectionsModel {
+    var groups: [PortSelectGroup] = []
+    var isLoading = false
+    var errorMessage: String?
+
+    func load() async {
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+        do {
+            groups = try await PortClient().selections()
+        } catch {
+            groups = []
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+@MainActor
+@Observable
 final class OutdatedModel {
     var ports: [OutdatedPort] = []
     var isLoading = false
@@ -106,7 +126,7 @@ final class OutdatedModel {
 /// Sidebar destinations. Add a case here to add a tab.
 enum BrowseMode: String, CaseIterable, Identifiable {
     case installed = "Installed", available = "Available", outdated = "Outdated", inactive = "Inactive",
-         configuration = "Configuration"
+         selections = "Selections", configuration = "Configuration"
     var id: Self { self }
 
     var symbol: String {
@@ -115,6 +135,7 @@ enum BrowseMode: String, CaseIterable, Identifiable {
         case .available: "magnifyingglass"
         case .outdated: "arrow.triangle.2.circlepath"
         case .inactive: "archivebox"
+        case .selections: "arrow.left.arrow.right.circle"
         case .configuration: "gearshape"
         }
     }
@@ -133,6 +154,8 @@ struct ContentView: View {
     @State private var outdatedModel = OutdatedModel()
     @State private var outdatedSelection: String?
     @State private var inactiveSelection: InstalledPort.ID?
+    @State private var selectionsModel = SelectionsModel()
+    @State private var groupSelection: String?
     @State private var mode: BrowseMode? = .installed
     @State private var searchSelection: String?
     @State private var search = ""
@@ -195,12 +218,14 @@ struct ContentView: View {
         .task { await model.load() }
         .task(id: mode) {
             if currentMode == .outdated { await outdatedModel.load() }
+            if currentMode == .selections { await selectionsModel.load() }
         }
     }
 
     private func refreshAll() async {
         await model.load()
         await outdatedModel.load()
+        if currentMode == .selections { await selectionsModel.load() }
     }
 
     private var upgradeAllButton: some View {
@@ -292,6 +317,8 @@ struct ContentView: View {
                                subtitle: "\(port.version)_\(port.revision)" + (port.isActive ? "" : " (inactive)"),
                                onUninstalled: { await model.load() },
                                onOpenPort: openPort)
+            } else if currentMode == .selections, let group = selectionsModel.groups.first(where: { $0.id == groupSelection }) {
+                SelectionDetailView(group: group) { await selectionsModel.load() }
             } else if currentMode == .configuration {
                 ContentUnavailableView("Configuration", systemImage: "gearshape",
                                        description: Text("Settings apply to the next command you run."))
@@ -334,6 +361,7 @@ struct ContentView: View {
         case .available: "\(searchModel.results.count) results"
         case .outdated: "\(outdatedModel.ports.count) outdated"
         case .inactive: "\(inactivePorts.count) inactive"
+        case .selections: "\(selectionsModel.groups.count) groups"
         case .configuration: "Settings"
         }
     }
@@ -354,6 +382,7 @@ struct ContentView: View {
             case .available: searchList
             case .outdated: outdatedList
             case .inactive: inactiveList
+            case .selections: selectionsList
             case .configuration: EmptyView()
             }
         }
@@ -451,6 +480,26 @@ struct ContentView: View {
                 TableColumn("Name", value: \.name)
                 TableColumn("Version") { Text("\($0.version)_\($0.revision)") }
                 TableColumn("Variants") { Text($0.variants.map { "+" + $0 }.joined(separator: " ")).foregroundStyle(.secondary) }
+            }
+        }
+    }
+
+    @ViewBuilder private var selectionsList: some View {
+        if let error = selectionsModel.errorMessage {
+            ContentUnavailableView("Can't read selections", systemImage: "exclamationmark.triangle",
+                                   description: Text(error))
+        } else if selectionsModel.isLoading && selectionsModel.groups.isEmpty {
+            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if selectionsModel.groups.isEmpty {
+            ContentUnavailableView("No selection groups", systemImage: "arrow.left.arrow.right.circle",
+                                   description: Text("Install ports such as clang or python to choose between versions."))
+        } else {
+            let rows = selectionsModel.groups.filter {
+                search.isEmpty || $0.name.localizedCaseInsensitiveContains(search)
+            }
+            Table(rows, selection: $groupSelection) {
+                TableColumn("Group", value: \.name)
+                TableColumn("Selected") { Text($0.selected).foregroundStyle($0.isSet ? .primary : .secondary) }
             }
         }
     }
