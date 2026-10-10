@@ -10,7 +10,7 @@ struct HelpView: View {
                     "Select a port to see its details, variants and dependencies.",
                 ])
                 section("Installing", [
-                    "Choose variants in the detail pane before installing. A package icon marks ports that have a pre-built binary for your platform.",
+                    "Choose variants in the detail pane before installing. A package icon marks ports that have a pre-built binary for your platform. In search results, the Pre-built column shows a green seal for ports with a binary for this Mac (first 100 results), and the toolbar's \"Pre-built only\" toggle filters to them.",
                     "Status in the Available table updates live (Downloading…, Building…, Installing…).",
                 ])
                 section("Upgrading and cleanup", [

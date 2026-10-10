@@ -30,8 +30,38 @@ final class SearchModel {
     var isSearching = false
     var errorMessage: String?
     var hasSearched = false
+    /// Pre-built binary hints for the current results; a missing key means not checked yet.
+    private(set) var binary: [String: BinaryAvailability] = [:]
+    private var binaryTask: Task<Void, Never>?
 
     private let client = PortClient()
+    private static let binaryCheckLimit = 100
+
+    func binaryCheckPending(_ name: String) -> Bool {
+        results.prefix(Self.binaryCheckLimit).contains(name)
+    }
+
+    private func checkBinaries(_ names: [String]) {
+        binaryTask?.cancel()
+        binary = [:]
+        binaryTask = Task {
+            let batch = Array(names.prefix(Self.binaryCheckLimit))
+            await withTaskGroup(of: (String, BinaryAvailability).self) { group in
+                var iterator = batch.makeIterator()
+                func addNext() {
+                    if let name = iterator.next() {
+                        group.addTask { (name, await BinaryArchive.anyBuildAvailability(name: name)) }
+                    }
+                }
+                for _ in 0..<6 { addNext() }
+                while let (name, result) = await group.next() {
+                    if Task.isCancelled { group.cancelAll(); return }
+                    binary[name] = result
+                    addNext()
+                }
+            }
+        }
+    }
 
     func search(_ term: String, scope: SearchScope) async {
         isSearching = true
@@ -42,6 +72,7 @@ final class SearchModel {
             guard !Task.isCancelled else { return }
             results = found
             hasSearched = true
+            checkBinaries(found)
         } catch is CancellationError {
         } catch {
             results = []
@@ -106,6 +137,7 @@ struct ContentView: View {
     @State private var searchSelection: String?
     @State private var search = ""
     @State private var scope = SearchScope.name
+    @State private var prebuiltOnly = false
     @State private var sortOrder = [KeyPathComparator(\InstalledPort.name)]
 
     @State private var selection: InstalledPort.ID?
@@ -255,7 +287,7 @@ struct ContentView: View {
                     Text(currentMode == .installed ? "Choose an installed port to see its details."
                                             : "Search for a port, then choose one to see its details.")
                 } actions: {
-                    MacPortsLogo(size: 64)
+                    AppIconImage(size: 96)
                 }
             }
         }
@@ -265,6 +297,12 @@ struct ContentView: View {
             ToolbarItem {
                 Button("Activity Log", systemImage: "terminal") { activity.isVisible.toggle() }
                     .help("Show or hide the activity log")
+            }
+            if currentMode == .available {
+                ToolbarItem {
+                    Toggle("Pre-built only", systemImage: "checkmark.seal", isOn: $prebuiltOnly)
+                        .help("Show only results that have a pre-built binary for this Mac (first 100 results are checked)")
+                }
             }
             if currentMode == .outdated { ToolbarItem { upgradeAllButton } }
             if currentMode == .inactive { ToolbarItemGroup { removeInactiveButtons } }
@@ -336,12 +374,36 @@ struct ContentView: View {
             ContentUnavailableView.search(text: search)
         } else {
             let installed = Set(model.ports.map(\.name))
-            let rows = searchModel.results.map { SearchRow(name: $0, isInstalled: installed.contains($0)) }
+            let names = prebuiltOnly ? searchModel.results.filter { searchModel.binary[$0] == .available }
+                                     : searchModel.results
+            let rows = names.map { SearchRow(name: $0, isInstalled: installed.contains($0)) }
             Table(rows, selection: $searchSelection) {
                 TableColumn("Name", value: \.name)
+                TableColumn("Pre-built") { row in
+                    binaryHint(row.name)
+                }
+                .width(min: 70, ideal: 80, max: 100)
                 TableColumn("Status") { row in
                     searchStatus(row)
                 }
+            }
+        }
+    }
+
+    @ViewBuilder private func binaryHint(_ name: String) -> some View {
+        switch searchModel.binary[name] {
+        case .available:
+            Image(systemName: "checkmark.seal.fill").foregroundStyle(.green)
+                .help("A pre-built binary exists for this Mac")
+        case .unavailable:
+            Text("–").foregroundStyle(.secondary).help("No pre-built binary found; builds from source")
+        case .unknown:
+            Text("?").foregroundStyle(.secondary).help("Couldn't reach the archive server")
+        case nil:
+            if searchModel.binaryCheckPending(name) {
+                ProgressView().controlSize(.mini)
+            } else {
+                Text("")
             }
         }
     }
