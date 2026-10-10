@@ -255,7 +255,7 @@ struct ContentView: View {
                     Text(currentMode == .installed ? "Choose an installed port to see its details."
                                             : "Search for a port, then choose one to see its details.")
                 } actions: {
-                    MacPortsLogo(size: 64)
+                    AppIconImage(size: 96)
                 }
             }
         }
