@@ -17,7 +17,7 @@ struct HelpView: View {
                 ])
                 section("Health", [
                     "The Health tab runs `port diagnose` and lists any warnings. Reclaim in Terminal opens Terminal running `sudo port reclaim`, which asks before removing anything.",
-                ]),
+                ])
                 section("Selections", [
                     "The Selections tab lists `port select` groups (clang, python, gcc…) and which version each uses. Choose a group, then Select a version or Unset it (asks for your administrator password).",
                 ])
