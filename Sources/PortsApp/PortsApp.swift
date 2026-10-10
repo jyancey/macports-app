@@ -11,8 +11,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 enum AppInfo {
     static let name = "MacPorts"
     // Fallback used when run unbundled (`swift run`); packaged builds read Info.plist.
-    static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.3"
-    static let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0.1.3"
+    static let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.4"
+    static let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0.1.4"
     static let author = "John Yancey"
     static let copyright = "© 2026 John Yancey"
 }
