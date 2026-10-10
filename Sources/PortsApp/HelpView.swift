@@ -8,13 +8,18 @@ struct HelpView: View {
                 section("Browsing", [
                     "Installed, Outdated and Inactive list what is on your system; Available searches the whole ports tree (press Return to search).",
                     "Select a port to see its details, variants and dependencies.",
+                    "Click a dependency or a \"Required by\" name to jump to that port.",
+                    "Expand \"Full dependency tree\" to see everything a port needs, recursively.",
                 ])
                 section("Installing", [
                     "Choose variants in the detail pane before installing. A package icon marks ports that have a pre-built binary for your platform. In search results, the Pre-built column shows a green seal for ports with a binary for this Mac (first 100 results), and the toolbar's \"Pre-built only\" toggle filters to them.",
                     "Status in the Available table updates live (Downloading…, Building…, Installing…).",
                 ])
+                section("Selections", [
+                    "The Selections tab lists `port select` groups (clang, python, gcc…) and which version each uses. Choose a group, then Select a version or Unset it (asks for your administrator password).",
+                ])
                 section("Upgrading and cleanup", [
-                    "Outdated lists ports with newer versions; Upgrade All runs `port upgrade outdated`.",
+                    "Outdated lists ports with newer versions (the Pre-built column shows whether the update has a binary for this Mac, and the toolbar toggle filters to those); Upgrade All runs `port upgrade outdated`.",
                     "Inactive lists old versions that can be removed to reclaim space.",
                 ])
                 section("Activity pane", [

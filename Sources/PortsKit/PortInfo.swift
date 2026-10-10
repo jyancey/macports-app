@@ -78,6 +78,41 @@ public enum PortInfoParser {
         parseFileList(output).filter { !$0.contains(" ") }
     }
 
+    /// A port in a dependency tree.
+    public struct DependencyNode: Identifiable, Hashable, Sendable {
+        public let id: Int
+        public let name: String
+        public var children: [DependencyNode]?
+    }
+
+    /// Parses `port -q rdeps` (two-space indentation per level) into a forest.
+    public static func parseDependencyTree(_ output: String) -> [DependencyNode] {
+        struct Entry { var name: String; var depth: Int }
+        var entries: [Entry] = []
+        for line in output.split(whereSeparator: \.isNewline) {
+            let name = line.trimmingCharacters(in: .whitespaces)
+            guard !name.isEmpty, !name.contains(" ") else { continue }
+            let indent = line.prefix { $0 == " " }.count
+            entries.append(Entry(name: name, depth: max(indent / 2 - 1, 0)))
+        }
+        var nextID = 0
+        func build(_ index: inout Int, depth: Int) -> [DependencyNode] {
+            var nodes: [DependencyNode] = []
+            while index < entries.count, entries[index].depth >= depth {
+                guard entries[index].depth == depth else { index += 1; continue }
+                let entry = entries[index]
+                index += 1
+                let id = nextID
+                nextID += 1
+                let kids = build(&index, depth: depth + 1)
+                nodes.append(DependencyNode(id: id, name: entry.name, children: kids.isEmpty ? nil : kids))
+            }
+            return nodes
+        }
+        var index = 0
+        return build(&index, depth: 0)
+    }
+
     /// One port name per line, de-duplicated and sorted.
     public static func parseNames(_ output: String) -> [String] {
         Array(Set(parseDependents(output))).sorted()

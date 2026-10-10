@@ -105,6 +105,11 @@ public struct PortClient: Sendable {
         PortInfoParser.parseDependents(try await run(["-q", "dependents", name]))
     }
 
+    /// The full recursive dependency tree of a port.
+    public func dependencyTree(of name: String) async throws -> [PortInfoParser.DependencyNode] {
+        PortInfoParser.parseDependencyTree(try await run(["-q", "rdeps", name]))
+    }
+
     /// Installs a port, streaming `port`'s output to `onOutput` as it is produced.
     ///
     /// `port install` needs root, so it runs through the standard macOS administrator password
@@ -160,6 +165,19 @@ public struct PortClient: Sendable {
     /// Uninstalls every inactive version of every port.
     public func uninstallInactive(onOutput: @escaping @MainActor @Sendable (String) -> Void) async throws {
         try await runStreaming(action: "uninstall", name: "inactive", onOutput: onOutput)
+    }
+
+    /// Every `port select` group with its current selection (`port select --summary`).
+    public func selections() async throws -> [PortSelectGroup] {
+        PortSelectParser.parse(try await run(["select", "--summary"]))
+    }
+
+    /// Selects `option` for `group`; "none" unsets it (`port select --set`).
+    public func setSelection(group: String, option: String,
+                             onOutput: @escaping @MainActor @Sendable (String) -> Void) async throws {
+        guard PortClient.isValidPortName(group) else { throw PortClientError.invalidName(group) }
+        guard PortClient.isValidPortName(option) else { throw PortClientError.invalidName(option) }
+        try await runStreaming(action: "select", arguments: "--set \(group) \(option)", onOutput: onOutput)
     }
 
     /// Updates MacPorts itself and syncs the ports tree (`port selfupdate`).
