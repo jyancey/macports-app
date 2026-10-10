@@ -4,6 +4,7 @@ import PortsKit
 /// App preferences and facts about the local MacPorts installation.
 struct ConfigurationView: View {
     @AppStorage(PortClient.verboseDefaultsKey) private var verbose = false
+    @AppStorage(ActivityLog.autoOpenKey) private var autoOpen = true
     @Environment(ActivityLog.self) private var activity
     @AppStorage(PortClient.executablePathDefaultsKey) private var portPath = ""
     @State private var pathDraft = ""
@@ -16,6 +17,7 @@ struct ConfigurationView: View {
     var body: some View {
         Form {
             Section("Activity") {
+                Toggle("Open Activity pane when a command starts", isOn: $autoOpen)
                 Toggle("Verbose output", isOn: $verbose)
                 Text("Passes -v to port so the Activity pane shows full configure and build output. "
                      + "Turn it off for faster, quieter runs.")

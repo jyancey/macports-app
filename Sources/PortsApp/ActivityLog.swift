@@ -15,6 +15,7 @@ final class ActivityLog {
     private(set) var progress: [String: PortProgress] = [:]
     private var parser = InstallProgressParser()
 
+    static let autoOpenKey = "autoOpenActivity"
     private static let maxLines = 5000
 
     /// Runs `work`, streaming its output into the log. Returns true on success.
@@ -26,7 +27,7 @@ final class ActivityLog {
         isRunning = true
         lastRunFailed = false
         runningName = name
-        isVisible = true
+        if UserDefaults.standard.object(forKey: Self.autoOpenKey) as? Bool ?? true { isVisible = true }
         append("$ \(title)\n")
         parser = InstallProgressParser()
         progress = [:]

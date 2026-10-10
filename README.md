@@ -21,6 +21,7 @@ Early development. Currently implemented:
 - [x] Self-update and Sync buttons in the Configuration tab (ask for your administrator password)
 - [x] Configuration tab with a verbose output setting (off by default)
 - [x] Resizable Activity pane (height is remembered)
+- [x] Setting to auto-open the Activity pane when a command starts (Configuration tab, on by default)
 - [x] MacPorts info in the Configuration tab (version, prefix, paths, installed count, sources)
 - [x] Diagnose button (`port diagnose`) in the Configuration tab
 - [x] Custom `port` executable path in the Configuration tab (for MacPorts installed outside /opt/local)
