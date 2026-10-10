@@ -9,6 +9,7 @@ Early development. Currently implemented:
 - [x] List installed ports (name, version, revision, variants, active/inactive)
 - [x] Port details (description, homepage, license, dependencies, dependents, installed files)
 - [x] Clickable dependencies and dependents that jump to that port
+- [x] Full recursive dependency tree in the port detail
 - [x] Search available ports (Available tab: type a term, press Return)
 - [x] Install an available port (asks for your administrator password)
 - [x] Live activity log (bottom panel, toggle from the toolbar) streaming install output

@@ -41,3 +41,19 @@ import Testing
         #expect(PortInfoParser.parseDependents("foo has no dependents!\n").isEmpty)
     }
 }
+
+@Suite struct DependencyTreeTests {
+    @Test func parsesNestedTree() {
+        let output = "  xz\n    gettext\n      ncurses\n  zlib\n"
+        let tree = PortInfoParser.parseDependencyTree(output)
+        #expect(tree.map(\.name) == ["xz", "zlib"])
+        #expect(tree[0].children?.map(\.name) == ["gettext"])
+        #expect(tree[0].children?[0].children?.map(\.name) == ["ncurses"])
+        #expect(tree[1].children == nil)
+    }
+
+    @Test func ignoresNoiseAndEmpty() {
+        #expect(PortInfoParser.parseDependencyTree("").isEmpty)
+        #expect(PortInfoParser.parseDependencyTree("Error: not found\n").isEmpty)
+    }
+}

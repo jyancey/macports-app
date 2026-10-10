@@ -13,6 +13,7 @@ final class PortDetailModel {
     var info: Loadable<PortInfo> = .loading
     var files: Loadable<[String]> = .loading
     var dependents: Loadable<[String]> = .loading
+    var tree: Loadable<[PortInfoParser.DependencyNode]> = .loading
     /// Whether a pre-built archive exists for the default variants; nil until checked.
     var binary: BinaryAvailability?
 
@@ -22,15 +23,18 @@ final class PortDetailModel {
         info = .loading
         files = .loading
         dependents = .loading
+        tree = .loading
         binary = nil
         async let i = capture { try await self.client.info(for: name) }
         async let f = capture { try await self.client.contents(of: name) }
         async let d = capture { try await self.client.dependents(of: name) }
-        let (infoResult, filesResult, dependentsResult) = await (i, f, d)
+        async let t = capture { try await self.client.dependencyTree(of: name) }
+        let (infoResult, filesResult, dependentsResult, treeResult) = await (i, f, d, t)
         guard !Task.isCancelled else { return }
         info = infoResult
         files = filesResult
         dependents = dependentsResult
+        tree = treeResult
         if case .loaded(let info) = infoResult {
             let defaults = ((try? await client.variants(of: name)) ?? []).filter(\.isDefault).map(\.name)
             let result = await BinaryArchive.availability(
@@ -71,6 +75,7 @@ struct PortDetailView: View {
                 header
                 infoSection
                 dependentsSection
+                treeSection
                 filesSection
             }
             .padding(20)
@@ -233,6 +238,17 @@ struct PortDetailView: View {
             DisclosureGroup("Required by (\(names.count))") {
                 portLinks(names)
                     .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    @ViewBuilder private var treeSection: some View {
+        if case .loaded(let nodes) = model.tree, !nodes.isEmpty {
+            DisclosureGroup("Full dependency tree (\(nodes.count) direct)") {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(nodes) { TreeRow(node: $0, onOpenPort: onOpenPort) }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
@@ -414,5 +430,26 @@ struct InstallOptionsView: View {
                     selected.remove(variant.name)
                 }
             })
+    }
+}
+
+/// One expandable row of the dependency tree.
+struct TreeRow: View {
+    let node: PortInfoParser.DependencyNode
+    let onOpenPort: (String) -> Void
+
+    var body: some View {
+        if let children = node.children {
+            DisclosureGroup {
+                ForEach(children) { TreeRow(node: $0, onOpenPort: onOpenPort) }
+            } label: { link }
+        } else {
+            link
+        }
+    }
+
+    private var link: some View {
+        Button(node.name) { onOpenPort(node.name) }
+            .buttonStyle(.link)
     }
 }

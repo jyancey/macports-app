@@ -105,6 +105,11 @@ public struct PortClient: Sendable {
         PortInfoParser.parseDependents(try await run(["-q", "dependents", name]))
     }
 
+    /// The full recursive dependency tree of a port.
+    public func dependencyTree(of name: String) async throws -> [PortInfoParser.DependencyNode] {
+        PortInfoParser.parseDependencyTree(try await run(["-q", "rdeps", name]))
+    }
+
     /// Installs a port, streaming `port`'s output to `onOutput` as it is produced.
     ///
     /// `port install` needs root, so it runs through the standard macOS administrator password
