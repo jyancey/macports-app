@@ -107,8 +107,41 @@ final class OutdatedModel {
     var ports: [OutdatedPort] = []
     var isLoading = false
     var errorMessage: String?
+    /// Whether the new version is available pre-built (with the installed variants); missing means not checked yet.
+    private(set) var binary: [String: BinaryAvailability] = [:]
+    private var binaryTask: Task<Void, Never>?
 
     private let client = PortClient()
+
+    func checkBinaries(installed: [InstalledPort]) {
+        binaryTask?.cancel()
+        binary = [:]
+        let variants = Dictionary(installed.filter(\.isActive).map { ($0.name, $0.variants) },
+                                  uniquingKeysWith: { first, _ in first })
+        let batch = ports
+        binaryTask = Task {
+            await withTaskGroup(of: (String, BinaryAvailability).self) { group in
+                var iterator = batch.makeIterator()
+                func addNext() {
+                    guard let port = iterator.next() else { return }
+                    let parts = port.availableVersion.split(separator: "_", maxSplits: 1)
+                    let version = parts.first.map(String.init) ?? port.availableVersion
+                    let revision = parts.count > 1 ? Int(parts[1]) ?? 0 : 0
+                    let wanted = variants[port.name] ?? []
+                    group.addTask {
+                        (port.name, await BinaryArchive.availability(
+                            name: port.name, version: version, revision: revision, variants: wanted))
+                    }
+                }
+                for _ in 0..<6 { addNext() }
+                while let (name, result) = await group.next() {
+                    if Task.isCancelled { group.cancelAll(); return }
+                    binary[name] = result
+                    addNext()
+                }
+            }
+        }
+    }
 
     func load() async {
         isLoading = true
@@ -216,6 +249,9 @@ struct ContentView: View {
             }
         }
         .task { await model.load() }
+        .task(id: outdatedModel.ports.map(\.availableVersion) + [String(model.ports.count)]) {
+            outdatedModel.checkBinaries(installed: model.ports)
+        }
         .task(id: mode) {
             if currentMode == .outdated { await outdatedModel.load() }
             if currentMode == .selections { await selectionsModel.load() }
@@ -346,7 +382,13 @@ struct ContentView: View {
                         .help("Show only results that have a pre-built binary for this Mac (first 100 results are checked)")
                 }
             }
-            if currentMode == .outdated { ToolbarItem { upgradeAllButton } }
+            if currentMode == .outdated {
+                ToolbarItem {
+                    Toggle("Pre-built only", systemImage: "checkmark.seal", isOn: $prebuiltOnly)
+                        .help("Show only updates that have a pre-built binary for this Mac")
+                }
+                ToolbarItem { upgradeAllButton }
+            }
             if currentMode == .inactive { ToolbarItemGroup { removeInactiveButtons } }
             ToolbarItem {
                 Button("Refresh", systemImage: "arrow.clockwise") { Task { await refreshAll() } }
@@ -435,7 +477,11 @@ struct ContentView: View {
     }
 
     @ViewBuilder private func binaryHint(_ name: String) -> some View {
-        switch searchModel.binary[name] {
+        binaryHint(searchModel.binary[name], pending: searchModel.binaryCheckPending(name))
+    }
+
+    @ViewBuilder private func binaryHint(_ value: BinaryAvailability?, pending: Bool) -> some View {
+        switch value {
         case .available:
             Image(systemName: "checkmark.seal.fill").foregroundStyle(.green)
                 .help("A pre-built binary exists for this Mac")
@@ -444,7 +490,7 @@ struct ContentView: View {
         case .unknown:
             Text("?").foregroundStyle(.secondary).help("Couldn't reach the archive server")
         case nil:
-            if searchModel.binaryCheckPending(name) {
+            if pending {
                 ProgressView().controlSize(.mini)
             } else {
                 Text("")
@@ -515,12 +561,18 @@ struct ContentView: View {
                                    description: Text("No installed ports have newer versions."))
         } else {
             let rows = outdatedModel.ports.filter {
-                search.isEmpty || $0.name.localizedCaseInsensitiveContains(search)
+                (search.isEmpty || $0.name.localizedCaseInsensitiveContains(search))
+                    && (!prebuiltOnly || outdatedModel.binary[$0.name] == .available)
             }
             Table(rows, selection: $outdatedSelection) {
                 TableColumn("Name", value: \.name)
                 TableColumn("Installed", value: \.installedVersion)
                 TableColumn("Available", value: \.availableVersion)
+                TableColumn("Pre-built") { row in
+                    binaryHint(outdatedModel.binary[row.name], pending: outdatedModel.binary.isEmpty
+                               || outdatedModel.binary[row.name] == nil)
+                }
+                .width(min: 70, ideal: 80, max: 100)
             }
         }
     }

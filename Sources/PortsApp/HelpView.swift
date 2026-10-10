@@ -19,7 +19,7 @@ struct HelpView: View {
                     "The Selections tab lists `port select` groups (clang, python, gcc…) and which version each uses. Choose a group, then Select a version or Unset it (asks for your administrator password).",
                 ])
                 section("Upgrading and cleanup", [
-                    "Outdated lists ports with newer versions; Upgrade All runs `port upgrade outdated`.",
+                    "Outdated lists ports with newer versions (the Pre-built column shows whether the update has a binary for this Mac, and the toolbar toggle filters to those); Upgrade All runs `port upgrade outdated`.",
                     "Inactive lists old versions that can be removed to reclaim space.",
                 ])
                 section("Activity pane", [
