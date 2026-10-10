@@ -180,6 +180,27 @@ public struct PortClient: Sendable {
         try await runStreaming(action: "select", arguments: "--set \(group) \(option)", onOutput: onOutput)
     }
 
+    /// Runs `port diagnose` and returns its findings; warnings arrive on stderr, so both streams are read.
+    public func diagnoseFindings() async throws -> [DiagnosticFinding] {
+        DiagnoseParser.parse(try await run(["diagnose"], mergeStderr: true))
+    }
+
+    /// Opens Terminal running `port reclaim`, which is interactive and asks before removing anything.
+    public func reclaimInTerminal() async throws {
+        guard isAvailable, PortClient.isSafePath(executableURL.path) else {
+            throw PortClientError.invalidName(executableURL.path)
+        }
+        let command = "sudo \(executableURL.path) reclaim"
+        _ = try await Task.detached {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+            process.arguments = ["-e", "tell application \"Terminal\" to activate",
+                                 "-e", "tell application \"Terminal\" to do script \"\(command)\""]
+            try process.run()
+            process.waitUntilExit()
+        }.value
+    }
+
     /// Updates MacPorts itself and syncs the ports tree (`port selfupdate`).
     public func selfupdate(onOutput: @escaping @MainActor @Sendable (String) -> Void) async throws {
         try await runStreaming(action: "selfupdate", arguments: "", onOutput: onOutput)
@@ -356,7 +377,7 @@ public struct PortClient: Sendable {
         }.value
     }
 
-    func run(_ arguments: [String]) async throws -> String {
+    func run(_ arguments: [String], mergeStderr: Bool = false) async throws -> String {
         guard isAvailable else { throw PortClientError.notInstalled(executableURL.path) }
         let url = executableURL
         return try await Task.detached {
@@ -365,7 +386,7 @@ public struct PortClient: Sendable {
             process.arguments = arguments
             let out = Pipe(), err = Pipe()
             process.standardOutput = out
-            process.standardError = err
+            process.standardError = mergeStderr ? out : err
             try process.run()
             // Drain stderr concurrently so neither pipe buffer can fill and block the process.
             async let errData = Task.detached { err.fileHandleForReading.readDataToEndOfFile() }.value
