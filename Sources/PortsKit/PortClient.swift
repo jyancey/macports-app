@@ -369,6 +369,8 @@ public struct PortClient: Sendable {
             process.standardOutput = out
             process.standardError = mergeStderr ? out : err
             try process.run()
+            // Unused when stderr is merged; leaving it open would keep the drain below waiting forever.
+            if mergeStderr { try? err.fileHandleForWriting.close() }
             // Drain stderr concurrently so neither pipe buffer can fill and block the process.
             async let errData = Task.detached { err.fileHandleForReading.readDataToEndOfFile() }.value
             let outData = out.fileHandleForReading.readDataToEndOfFile()
