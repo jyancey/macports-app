@@ -302,59 +302,59 @@ struct ContentView: View {
 
   var body: some View {
     split
-    .environment(detailCache)
-    .environment(actions)
-    .sheet(item: $actions.installRequest) { request in
-      InstallOptionsView(name: request.name) { flags in
-        Task { await actions.install(request.name, flags: flags) }
+      .environment(detailCache)
+      .environment(actions)
+      .sheet(item: $actions.installRequest) { request in
+        InstallOptionsView(name: request.name) { flags in
+          Task { await actions.install(request.name, flags: flags) }
+        }
       }
-    }
-    .confirmationDialog(
-      "Uninstall \(actions.uninstallRequest ?? "")?",
-      isPresented: Binding(
-        get: { actions.uninstallRequest != nil },
-        set: { if !$0 { actions.uninstallRequest = nil } }),
-      presenting: actions.uninstallRequest
-    ) { name in
-      Button("Uninstall", role: .destructive) { Task { await actions.confirmUninstall(name) } }
-    } message: { _ in
-      Text(
-        "This removes the port from your system. macOS administrator authorization will be requested."
-      )
-    }
-    .confirmationDialog(
-      activateTitle,
-      isPresented: Binding(
-        get: { actions.activateRequest != nil },
-        set: { if !$0 { actions.activateRequest = nil } }),
-      presenting: actions.activateRequest
-    ) { port in
-      Button("Activate") { Task { await actions.confirmActivate(port) } }
-    } message: { port in
-      Text(activateMessage(port))
-    }
-    .task {
-      await model.load()
-      // Load the outdated list up front so its tab opens at once and the
-      // sidebar can show how many updates there are.
-      await outdatedModel.loadIfStale()
-    }
-    .task(id: outdatedModel.ports.map(\.availableVersion) + [String(model.ports.count)]) {
-      outdatedModel.checkBinaries(installed: model.ports)
-    }
-    .task(id: mode) {
-      if !searchIsEnabled { search = "" }
-      if currentMode == .outdated { await outdatedModel.loadIfStale() }
-      if currentMode == .selections { await selectionsModel.loadIfStale() }
-    }
-    .onChange(of: activity.completedRuns) {
-      // A command may have changed what these show; reload on the next visit.
-      outdatedModel.invalidate()
-      selectionsModel.invalidate()
-      configurationModel.invalidate()
-      detailCache.removeAll()
-    }
-    .focusedSceneValue(\.windowActions, windowActions)
+      .confirmationDialog(
+        "Uninstall \(actions.uninstallRequest ?? "")?",
+        isPresented: Binding(
+          get: { actions.uninstallRequest != nil },
+          set: { if !$0 { actions.uninstallRequest = nil } }),
+        presenting: actions.uninstallRequest
+      ) { name in
+        Button("Uninstall", role: .destructive) { Task { await actions.confirmUninstall(name) } }
+      } message: { _ in
+        Text(
+          "This removes the port from your system. macOS administrator authorization will be requested."
+        )
+      }
+      .confirmationDialog(
+        activateTitle,
+        isPresented: Binding(
+          get: { actions.activateRequest != nil },
+          set: { if !$0 { actions.activateRequest = nil } }),
+        presenting: actions.activateRequest
+      ) { port in
+        Button("Activate") { Task { await actions.confirmActivate(port) } }
+      } message: { port in
+        Text(activateMessage(port))
+      }
+      .task {
+        await model.load()
+        // Load the outdated list up front so its tab opens at once and the
+        // sidebar can show how many updates there are.
+        await outdatedModel.loadIfStale()
+      }
+      .task(id: outdatedModel.ports.map(\.availableVersion) + [String(model.ports.count)]) {
+        outdatedModel.checkBinaries(installed: model.ports)
+      }
+      .task(id: mode) {
+        if !searchIsEnabled { search = "" }
+        if currentMode == .outdated { await outdatedModel.loadIfStale() }
+        if currentMode == .selections { await selectionsModel.loadIfStale() }
+      }
+      .onChange(of: activity.completedRuns) {
+        // A command may have changed what these show; reload on the next visit.
+        outdatedModel.invalidate()
+        selectionsModel.invalidate()
+        configurationModel.invalidate()
+        detailCache.removeAll()
+      }
+      .focusedSceneValue(\.windowActions, windowActions)
   }
 
   /// What the menu bar commands do in this window.
@@ -508,8 +508,8 @@ struct ContentView: View {
       ToolbarItem {
         Button(
           isSidebarVisible ? "Hide Sidebar" : "Show Sidebar",
-          systemImage: "sidebar.left")
-        {
+          systemImage: "sidebar.left"
+        ) {
           isSidebarVisible.toggle()
         }
         .help(isSidebarVisible ? "Hide the navigation sidebar" : "Show the navigation sidebar")
