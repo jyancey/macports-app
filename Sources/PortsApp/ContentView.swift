@@ -333,6 +333,21 @@ struct ContentView: View {
       } message: { port in
         Text(activateMessage(port))
       }
+      .confirmationDialog(
+        removeAllInactiveTitle, isPresented: $actions.removeAllInactiveRequested
+      ) {
+        Button("Remove All", role: .destructive) {
+          Task {
+            await actions.confirmRemoveAllInactive()
+            inactiveSelection = []
+          }
+        }
+      } message: {
+        Text(
+          "Old versions left behind by upgrades will be uninstalled to reclaim disk space. "
+            + "Active versions are not affected. "
+            + "macOS administrator authorization will be requested.")
+      }
       .task {
         await model.load()
         // Load the outdated list up front so its tab opens at once and the
@@ -370,6 +385,11 @@ struct ContentView: View {
       refresh: { Task { await refreshAll() } },
       canSearch: searchIsEnabled,
       focusSearch: { if searchIsEnabled { searchFocused = true } })
+  }
+
+  private var removeAllInactiveTitle: String {
+    let count = model.ports.filter { !$0.isActive }.count
+    return count == 1 ? "Remove 1 inactive version?" : "Remove all \(count) inactive versions?"
   }
 
   private var activateTitle: String {
@@ -442,10 +462,7 @@ struct ContentView: View {
       .disabled(activity.isRunning || selectedInactive.isEmpty)
       .help("Remove the selected inactive versions")
       Button("Remove All", systemImage: "eraser.badge.xmark.fill") {
-        Task {
-          await actions.removeAllInactive()
-          inactiveSelection = []
-        }
+        actions.requestRemoveAllInactive()
       }
       .disabled(activity.isRunning || model.ports.allSatisfy(\.isActive))
       .help("Remove every inactive version")
