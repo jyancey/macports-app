@@ -47,6 +47,8 @@ struct InstalledListView: View {
   let model: InstalledPortsModel
   /// Marks ports that have a newer version.
   let outdated: OutdatedModel
+  /// Passed in rather than read from the environment, like `activity` below.
+  let actions: PortActions
   let filter: String
   @Binding var sortOrder: [KeyPathComparator<InstalledPort>]
   @Binding var selection: InstalledPort.ID?
@@ -82,6 +84,12 @@ struct InstalledListView: View {
                 .foregroundStyle($0.isActive ? .primary : .secondary)
             }
           }
+          .contextMenu(forSelectionType: InstalledPort.ID.self) { ids in
+            if ids.count == 1, let port = model.ports.first(where: { ids.contains($0.id) }) {
+              PortMenus.installedItems(port, update: outdated.update(for: port), actions: actions)
+            }
+          }
+          .copyable(model.ports.filter { $0.id == selection }.map(\.name))
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -91,6 +99,7 @@ struct InstalledListView: View {
 
 struct InactiveListView: View {
   let model: InstalledPortsModel
+  let actions: PortActions
   let filter: String
   @Binding var sortOrder: [KeyPathComparator<InstalledPort>]
   @Binding var selection: InstalledPort.ID?
@@ -112,6 +121,12 @@ struct InactiveListView: View {
               Text($0.variants.map { "+" + $0 }.joined(separator: " ")).foregroundStyle(.secondary)
             }
           }
+          .contextMenu(forSelectionType: InstalledPort.ID.self) { ids in
+            if ids.count == 1, let port = model.ports.first(where: { ids.contains($0.id) }) {
+              PortMenus.installedItems(port, update: nil, actions: actions)
+            }
+          }
+          .copyable(model.ports.filter { $0.id == selection }.map(\.name))
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -134,6 +149,7 @@ struct SearchResultsView: View {
   /// always get environment objects (rebuilding the rows crashed with "No
   /// Observable object of type ActivityLog found").
   let activity: ActivityLog
+  let actions: PortActions
   let prebuiltOnly: Bool
   /// How the search term is matched; changing it reruns the search.
   @Binding var scope: SearchScope
@@ -187,6 +203,20 @@ struct SearchResultsView: View {
           SearchStatus(progress: activity.progress[row.name], isInstalled: row.isInstalled)
         }
       }
+      .contextMenu(forSelectionType: String.self) { names in
+        if names.count == 1, let name = names.first {
+          PortMenus.copyItems(name: name, installCommand: "sudo port install \(name)")
+          Divider()
+          if installed.names.contains(name) {
+            Button("Uninstall…", role: .destructive) { actions.requestUninstall(name) }
+              .disabled(!actions.canStart(name))
+          } else {
+            Button("Install…") { Task { await actions.install(name) } }
+              .disabled(!actions.canStart(name))
+          }
+        }
+      }
+      .copyable(selection.map { [$0] } ?? [])
     }
   }
 }
@@ -244,6 +274,7 @@ struct BinaryHint: View {
 
 struct OutdatedListView: View {
   let model: OutdatedModel
+  let actions: PortActions
   let filter: String
   let prebuiltOnly: Bool
   @Binding var selection: String?
@@ -283,6 +314,15 @@ struct OutdatedListView: View {
         }
         .width(min: 70, ideal: 80, max: 100)
       }
+      .contextMenu(forSelectionType: String.self) { names in
+        if names.count == 1, let name = names.first {
+          PortMenus.copyItems(name: name, installCommand: nil)
+          Divider()
+          Button("Upgrade") { Task { await actions.upgrade(name) } }
+            .disabled(!actions.canStart(name))
+        }
+      }
+      .copyable(selection.map { [$0] } ?? [])
     }
   }
 }

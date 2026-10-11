@@ -527,14 +527,14 @@ struct ContentView: View {
       switch currentMode {
       case .installed:
         InstalledListView(
-          model: model, outdated: outdatedModel, filter: search, sortOrder: $sortOrder,
-          selection: $selection
+          model: model, outdated: outdatedModel, actions: actions, filter: search,
+          sortOrder: $sortOrder, selection: $selection
         )
         .searchable(text: $search, placement: .toolbar, prompt: Text(searchPrompt))
         .searchFocused($searchFocused)
       case .available:
         SearchResultsView(
-          searchModel: searchModel, installed: model, activity: activity,
+          searchModel: searchModel, installed: model, activity: activity, actions: actions,
           prebuiltOnly: prebuiltOnly, scope: $scope,
           selection: $searchSelection
         )
@@ -542,14 +542,15 @@ struct ContentView: View {
         .searchFocused($searchFocused)
       case .outdated:
         OutdatedListView(
-          model: outdatedModel, filter: search, prebuiltOnly: prebuiltOnly,
+          model: outdatedModel, actions: actions, filter: search, prebuiltOnly: prebuiltOnly,
           selection: $outdatedSelection
         )
         .searchable(text: $search, placement: .toolbar, prompt: Text(searchPrompt))
         .searchFocused($searchFocused)
       case .inactive:
         InactiveListView(
-          model: model, filter: search, sortOrder: $sortOrder, selection: $inactiveSelection
+          model: model, actions: actions, filter: search, sortOrder: $sortOrder,
+          selection: $inactiveSelection
         )
         .searchable(text: $search, placement: .toolbar, prompt: Text(searchPrompt))
         .searchFocused($searchFocused)

@@ -24,3 +24,11 @@ import Testing
     #expect(ports.matching("nothing").isEmpty)
   }
 }
+
+@Test func installCommandKeepsTheVariants() {
+  let plain = InstalledPort(name: "zlib", version: "1.3", revision: 0, variants: [], isActive: true)
+  let withVariants = InstalledPort(
+    name: "git", version: "2.45", revision: 0, variants: ["universal", "svn"], isActive: true)
+  #expect(plain.installCommand == "sudo port install zlib")
+  #expect(withVariants.installCommand == "sudo port install git +universal +svn")
+}
