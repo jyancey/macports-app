@@ -488,7 +488,7 @@ struct ContentView: View {
         VStack(spacing: 0) {
           List(BrowseMode.allCases, selection: $mode) { item in
             Label(item.rawValue, systemImage: item.symbol)
-              .badge(item == .outdated ? outdatedModel.ports.count : 0)
+              .badge(badgeCount(item))
               .tag(item)
           }
           .listStyle(.sidebar)
@@ -728,6 +728,16 @@ struct ContentView: View {
     case .outdated: "Choose an outdated port to see its update."
     case .inactive: "Choose an inactive version to activate or remove it."
     default: "Search for a port, then choose one to see its details."
+    }
+  }
+
+  /// The number shown beside a sidebar item; zero shows no badge.
+  private func badgeCount(_ item: BrowseMode) -> Int {
+    switch item {
+    case .outdated: outdatedModel.ports.count
+    case .inactive: model.ports.count { !$0.isActive }
+    case .health: healthModel.findings?.count ?? 0
+    default: 0
     }
   }
 
