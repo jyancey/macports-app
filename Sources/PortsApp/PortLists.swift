@@ -256,6 +256,29 @@ struct SearchStatus: View {
   }
 }
 
+/// Where an outdated port is in a running upgrade; empty when it isn't part of one.
+struct UpgradeStatus: View {
+  let progress: PortProgress?
+
+  var body: some View {
+    switch progress {
+    case .working(let phase):
+      HStack(spacing: 6) {
+        ProgressView().controlSize(.small)
+        Text(phase + "…")
+      }
+      .foregroundStyle(.tint)
+      .accessibilityElement(children: .combine)
+    case .queued:
+      Label("Waiting…", systemImage: "clock").foregroundStyle(.secondary)
+    case .done:
+      Label("Upgraded", systemImage: "checkmark.circle").foregroundStyle(.secondary)
+    case nil:
+      Text("")
+    }
+  }
+}
+
 /// The Pre-built column: a seal, a dash, a question mark, or a spinner while checking.
 struct BinaryHint: View {
   let value: BinaryAvailability?
@@ -321,6 +344,9 @@ struct OutdatedListView: View {
             pending: model.binary.isEmpty || model.binary[row.name] == nil)
         }
         .width(min: 70, ideal: 80, max: 100)
+        TableColumn("Status") { row in
+          UpgradeStatus(progress: actions.activity.progress[row.name])
+        }
       }
       .contextMenu(forSelectionType: OutdatedPort.ID.self) { ids in
         let names = rows.filter { ids.contains($0.id) }.map(\.name)

@@ -277,7 +277,7 @@ struct PortDetailView: View {
     if actions.isWorking(on: name) {
       HStack(spacing: 6) {
         ProgressView().controlSize(.small)
-        Text("Working…").foregroundStyle(.secondary)
+        Text(actions.progressText(for: name, fallback: "Working…")).foregroundStyle(.secondary)
       }
     } else {
       Button("Activate", systemImage: "arrow.uturn.backward.circle") {
@@ -298,7 +298,7 @@ struct PortDetailView: View {
     if actions.isWorking(on: name) {
       HStack(spacing: 6) {
         ProgressView().controlSize(.small)
-        Text("Working…").foregroundStyle(.secondary)
+        Text(actions.progressText(for: name, fallback: "Working…")).foregroundStyle(.secondary)
       }
     } else {
       Button("Uninstall", systemImage: "trash", role: .destructive) {
@@ -312,7 +312,7 @@ struct PortDetailView: View {
     if actions.isWorking(on: name) {
       HStack(spacing: 6) {
         ProgressView().controlSize(.small)
-        Text("Installing…").foregroundStyle(.secondary)
+        Text(actions.progressText(for: name, fallback: "Installing…")).foregroundStyle(.secondary)
       }
     } else {
       Button("Install", systemImage: "arrow.down.circle") { Task { await actions.install(name) } }
