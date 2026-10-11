@@ -42,13 +42,13 @@ import Testing
     let deliveries = Deliveries()
     let task = run(["a", "b", "c"], interval: .milliseconds(300), into: deliveries)
     await gates.open("check a")
-    #expect(try await until { deliveries.batches.count == 1 })
+    try #require(try await until { deliveries.batches.count == 1 })
     #expect(deliveries.batches[0] == ["a": .available])
 
     await gates.open("check b")
     try await Task.sleep(for: .milliseconds(50))
     #expect(deliveries.batches.count == 1)
-    #expect(try await until { deliveries.batches.count == 2 })
+    try #require(try await until { deliveries.batches.count == 2 })
     #expect(deliveries.batches[1] == ["b": .available])
 
     await gates.open("check c")
