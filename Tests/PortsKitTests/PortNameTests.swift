@@ -37,3 +37,21 @@ struct PortNameTests {
   #expect(!PortClient.isValidVariantFlag("+x; rm"))
   #expect(!PortClient.isValidVariantFlag("+"))
 }
+
+@Test func versionArgumentsNameEachExactVersion() throws {
+  let ports = [
+    InstalledPort(name: "zlib", version: "1.3", revision: 1, variants: [], isActive: false),
+    InstalledPort(
+      name: "git", version: "2.45.0", revision: 0, variants: ["universal"], isActive: false),
+  ]
+  #expect(try PortClient.versionArguments(ports) == "zlib @1.3_1 git @2.45.0_0+universal")
+}
+
+@Test func versionArgumentsRejectShellSyntax() {
+  let badName = InstalledPort(
+    name: "a;rm", version: "1", revision: 0, variants: [], isActive: false)
+  let badVersion = InstalledPort(
+    name: "zlib", version: "1 $(x)", revision: 0, variants: [], isActive: false)
+  #expect(throws: PortClientError.self) { try PortClient.versionArguments([badName]) }
+  #expect(throws: PortClientError.self) { try PortClient.versionArguments([badVersion]) }
+}

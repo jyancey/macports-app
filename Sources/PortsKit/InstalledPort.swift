@@ -19,6 +19,12 @@ public struct InstalledPort: Identifiable, Hashable, Sendable {
     self.isActive = isActive
     id = "\(name)@\(version)_\(revision)" + variants.map { "+" + $0 }.joined()
   }
+
+  /// `@version_revision+variants`, as `port` accepts it after the name to
+  /// pick this exact installed version.
+  public var versionSpec: String {
+    "@\(version)_\(revision)" + variants.map { "+" + $0 }.joined()
+  }
 }
 
 public enum PortListParser {

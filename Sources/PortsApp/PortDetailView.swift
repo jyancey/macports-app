@@ -171,6 +171,9 @@ struct PortDetailView: View {
   var isInstalled = true
   /// Offers an Upgrade button (for an installed port with a newer version).
   var canUpgrade = false
+  /// Set when showing an inactive installed version: offers Activate and
+  /// Remove for that version instead of Uninstall.
+  var inactiveVersion: InstalledPort?
   /// Called when the user clicks a dependency name to jump to that port.
   var onOpenPort: (String) -> Void = { _ in }
   @Environment(PortActions.self) private var actions
@@ -184,6 +187,10 @@ struct PortDetailView: View {
     let name: String
     let isInstalled: Bool
   }
+
+  /// Files and dependents describe the active version, so they are left out
+  /// for an inactive one.
+  private var showsInstalledContents: Bool { isInstalled && inactiveVersion == nil }
 
   private var treeExpanded: Binding<Bool> {
     Binding(get: { expandedTree == name }, set: { expandedTree = $0 ? name : nil })
@@ -201,8 +208,8 @@ struct PortDetailView: View {
       .padding(20)
       .frame(maxWidth: .infinity, alignment: .leading)
     }
-    .task(id: LoadKey(name: name, isInstalled: isInstalled)) {
-      await model.load(name, isInstalled: isInstalled, cache: detailCache)
+    .task(id: LoadKey(name: name, isInstalled: showsInstalledContents)) {
+      await model.load(name, isInstalled: showsInstalledContents, cache: detailCache)
     }
     // Collapsing the tree or showing another port cancels `port rdeps`.
     .task(id: expandedTree == name ? name : nil) {
@@ -212,7 +219,7 @@ struct PortDetailView: View {
 
   private var header: some View {
     HStack(alignment: .center, spacing: 12) {
-      Image(systemName: isInstalled ? "shippingbox.fill" : "shippingbox")
+      Image(systemName: headerSymbol)
         .font(.system(size: 34))
         .foregroundStyle(.tint)
         .accessibilityHidden(true)
@@ -223,12 +230,22 @@ struct PortDetailView: View {
         } else if case .loaded(let info) = model.info {
           Text(info.version).foregroundStyle(.secondary)
         }
-        binaryBadge
+        // The pre-built check is for the current version, not an old one.
+        if inactiveVersion == nil { binaryBadge }
       }
       Spacer()
-      if isInstalled, canUpgrade { upgradeControls }
-      if isInstalled { uninstallControls } else { installControls }
+      if let inactiveVersion {
+        inactiveControls(inactiveVersion)
+      } else {
+        if isInstalled, canUpgrade { upgradeControls }
+        if isInstalled { uninstallControls } else { installControls }
+      }
     }
+  }
+
+  private var headerSymbol: String {
+    if inactiveVersion != nil { return "archivebox" }
+    return isInstalled ? "shippingbox.fill" : "shippingbox"
   }
 
   @ViewBuilder private var binaryBadge: some View {
@@ -253,6 +270,27 @@ struct PortDetailView: View {
       }
       .buttonStyle(.borderedProminent)
       .disabled(!actions.canStart(name))
+    }
+  }
+
+  @ViewBuilder private func inactiveControls(_ port: InstalledPort) -> some View {
+    if actions.isWorking(on: name) {
+      HStack(spacing: 6) {
+        ProgressView().controlSize(.small)
+        Text("Working…").foregroundStyle(.secondary)
+      }
+    } else {
+      Button("Activate", systemImage: "arrow.uturn.backward.circle") {
+        actions.requestActivate(port)
+      }
+      .buttonStyle(.borderedProminent)
+      .disabled(!actions.canStart(name))
+      .help("Make this version the active one again")
+      Button("Remove This Version", systemImage: "trash", role: .destructive) {
+        Task { await actions.remove(port) }
+      }
+      .disabled(!actions.canStart(name))
+      .help("Uninstall this inactive version to reclaim disk space")
     }
   }
 

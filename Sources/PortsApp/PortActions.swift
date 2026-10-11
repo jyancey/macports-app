@@ -15,6 +15,8 @@ protocol PortCommandRunner: Sendable {
   func uninstall(_ port: InstalledPort, onOutput: @escaping @MainActor @Sendable (String) -> Void)
     async throws
   func uninstallInactive(onOutput: @escaping @MainActor @Sendable (String) -> Void) async throws
+  func activate(_ port: InstalledPort, onOutput: @escaping @MainActor @Sendable (String) -> Void)
+    async throws
 }
 
 /// Runs each command with a new `PortClient`, so a `port` path or verbose
@@ -56,6 +58,12 @@ struct LivePortCommands: PortCommandRunner {
   func uninstallInactive(onOutput: @escaping @MainActor @Sendable (String) -> Void) async throws {
     try await PortClient().uninstallInactive(onOutput: onOutput)
   }
+
+  func activate(_ port: InstalledPort, onOutput: @escaping @MainActor @Sendable (String) -> Void)
+    async throws
+  {
+    try await PortClient().activate(port, onOutput: onOutput)
+  }
 }
 
 /// Starts install, upgrade and uninstall commands for one window, from the
@@ -76,6 +84,8 @@ final class PortActions {
   var installRequest: InstallRequest?
   /// Set while the uninstall confirmation is showing.
   var uninstallRequest: String?
+  /// Set while the confirmation to activate an inactive version is showing.
+  var activateRequest: InstalledPort?
   /// The port whose variants are being looked up before installing.
   private(set) var checkingVariants: String?
 
@@ -162,6 +172,23 @@ final class PortActions {
     }
   }
 
+  // MARK: Inactive versions
+
+  /// Asks for confirmation, since activating replaces the active version;
+  /// `confirmActivate` does the work.
+  func requestActivate(_ port: InstalledPort) {
+    guard canStart(port.name) else { return }
+    activateRequest = port
+  }
+
+  func confirmActivate(_ port: InstalledPort) async {
+    activateRequest = nil
+    let runner = self.runner
+    await run("sudo port activate \(port.name) \(port.versionSpec)", name: port.name) { out in
+      try await runner.activate(port, onOutput: out)
+    }
+  }
+
   func removeAllInactive() async {
     let runner = self.runner
     await run("sudo port uninstall inactive", name: "inactive") { out in
@@ -178,12 +205,5 @@ final class PortActions {
     guard !activity.isRunning else { return }
     await activity.run(title, name: name, work: work)
     await afterCommand()
-  }
-}
-
-extension InstalledPort {
-  /// `@version_revision+variants`, as `port` accepts it after the name.
-  var versionSpec: String {
-    "@\(version)_\(revision)" + variants.map { "+" + $0 }.joined()
   }
 }

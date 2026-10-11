@@ -175,13 +175,16 @@ public struct PortClient: Sendable {
     _ port: InstalledPort,
     onOutput: @escaping @MainActor @Sendable (String) -> Void
   ) async throws {
-    guard PortClient.isValidPortName(port.name) else {
-      throw PortClientError.invalidName(port.name)
-    }
-    let spec = "@\(port.version)_\(port.revision)" + port.variants.map { "+" + $0 }.joined()
-    guard PortClient.isValidVersionSpec(spec) else { throw PortClientError.invalidName(spec) }
-    try await runStreaming(
-      action: "uninstall", arguments: "\(port.name) \(spec)", onOutput: onOutput)
+    try await runStreaming(action: "uninstall", port: port, onOutput: onOutput)
+  }
+
+  /// Activates one specific installed version of a port. `port` deactivates
+  /// the version that is active now first; it stays installed.
+  public func activate(
+    _ port: InstalledPort,
+    onOutput: @escaping @MainActor @Sendable (String) -> Void
+  ) async throws {
+    try await runStreaming(action: "activate", port: port, onOutput: onOutput)
   }
 
   /// Uninstalls every inactive version of every port.
@@ -237,6 +240,28 @@ public struct PortClient: Sendable {
   /// Syncs the ports tree only, without updating MacPorts (`port sync`).
   public func sync(onOutput: @escaping @MainActor @Sendable (String) -> Void) async throws {
     try await runStreaming(action: "sync", arguments: "", onOutput: onOutput)
+  }
+
+  /// Runs `action` on one exact installed version, `name @version_revision+variants`.
+  private func runStreaming(
+    action: String, port: InstalledPort,
+    onOutput: @escaping @MainActor @Sendable (String) -> Void
+  ) async throws {
+    try await runStreaming(
+      action: action, arguments: try PortClient.versionArguments([port]), onOutput: onOutput)
+  }
+
+  /// `name @version_revision+variants` for each port, validated for the shell.
+  static func versionArguments(_ ports: [InstalledPort]) throws -> String {
+    try ports.map { port in
+      guard PortClient.isValidPortName(port.name) else {
+        throw PortClientError.invalidName(port.name)
+      }
+      guard PortClient.isValidVersionSpec(port.versionSpec) else {
+        throw PortClientError.invalidName(port.versionSpec)
+      }
+      return "\(port.name) \(port.versionSpec)"
+    }.joined(separator: " ")
   }
 
   private func runStreaming(

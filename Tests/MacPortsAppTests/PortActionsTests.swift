@@ -48,6 +48,10 @@ actor FakePortCommands: PortCommandRunner {
   func uninstallInactive(onOutput: @escaping @MainActor @Sendable (String) -> Void) async throws {
     try record("uninstall inactive")
   }
+
+  func activate(_ port: InstalledPort, onOutput: @escaping @MainActor @Sendable (String) -> Void)
+    async throws
+  { try record("activate \(port.name) \(port.versionSpec)") }
 }
 
 @MainActor
@@ -111,6 +115,20 @@ actor FakePortCommands: PortCommandRunner {
     await actions.remove(port)
     #expect(await runner.calls == ["uninstall zlib @1.3_1+universal"])
     #expect(log.chunks.joined().hasPrefix("$ sudo port uninstall zlib @1.3_1+universal\n"))
+  }
+
+  @Test func activatingWaitsForConfirmation() async {
+    let actions = makeActions()
+    let port = InstalledPort(
+      name: "zlib", version: "1.2", revision: 0, variants: [], isActive: false)
+    actions.requestActivate(port)
+    #expect(actions.activateRequest == port)
+    #expect(await runner.calls.isEmpty)
+
+    await actions.confirmActivate(port)
+    #expect(actions.activateRequest == nil)
+    #expect(await runner.calls == ["activate zlib @1.2_0"])
+    #expect(reloads.count == 1)
   }
 
   @Test func nothingStartsWhileACommandIsRunning() async throws {

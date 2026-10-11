@@ -322,6 +322,17 @@ struct ContentView: View {
         "This removes the port from your system. macOS administrator authorization will be requested."
       )
     }
+    .confirmationDialog(
+      activateTitle,
+      isPresented: Binding(
+        get: { actions.activateRequest != nil },
+        set: { if !$0 { actions.activateRequest = nil } }),
+      presenting: actions.activateRequest
+    ) { port in
+      Button("Activate") { Task { await actions.confirmActivate(port) } }
+    } message: { port in
+      Text(activateMessage(port))
+    }
     .task {
       await model.load()
       // Load the outdated list up front so its tab opens at once and the
@@ -359,6 +370,19 @@ struct ContentView: View {
       refresh: { Task { await refreshAll() } },
       canSearch: searchIsEnabled,
       focusSearch: { if searchIsEnabled { searchFocused = true } })
+  }
+
+  private var activateTitle: String {
+    guard let port = actions.activateRequest else { return "" }
+    return "Activate \(port.name) \(port.version)_\(port.revision)?"
+  }
+
+  private func activateMessage(_ port: InstalledPort) -> String {
+    let replaced =
+      activeVersion(of: port.name).map {
+        "\(port.name) \($0.version)_\($0.revision) will be deactivated. It stays installed. "
+      } ?? ""
+    return replaced + "macOS administrator authorization will be requested."
   }
 
   /// Reloads the installed and outdated lists and forgets cached port details.
@@ -573,23 +597,23 @@ struct ContentView: View {
       } else if currentMode == .inactive,
         let port = model.ports.first(where: { $0.id == inactiveSelection })
       {
-        ContentUnavailableView {
-          Label(port.name, systemImage: "archivebox")
-        } description: {
-          Text(
-            "Inactive version \(port.version)_\(port.revision)"
-              + (port.variants.isEmpty ? "" : " " + port.variants.map { "+" + $0 }.joined())
-              + ". Remove it to reclaim disk space.")
-        }
-      } else if currentMode == .installed, let port = selectedPort {
-        let update = outdatedModel.update(for: port)
         PortDetailView(
-          name: port.name,
-          subtitle: "\(port.version)_\(port.revision)"
-            + (port.isActive ? "" : " (inactive)")
-            + (update.map { " → \($0.availableVersion)" } ?? ""),
-          canUpgrade: update != nil,
+          name: port.name, subtitle: inactiveSubtitle(port), inactiveVersion: port,
           onOpenPort: openPort)
+      } else if currentMode == .installed, let port = selectedPort {
+        if port.isActive {
+          let update = outdatedModel.update(for: port)
+          PortDetailView(
+            name: port.name,
+            subtitle: "\(port.version)_\(port.revision)"
+              + (update.map { " → \($0.availableVersion)" } ?? ""),
+            canUpgrade: update != nil,
+            onOpenPort: openPort)
+        } else {
+          PortDetailView(
+            name: port.name, subtitle: inactiveSubtitle(port), inactiveVersion: port,
+            onOpenPort: openPort)
+        }
       } else if currentMode == .selections,
         let group = selectionsModel.groups.first(where: { $0.id == groupSelection })
       {
@@ -606,14 +630,35 @@ struct ContentView: View {
         ContentUnavailableView {
           Text("Select a port").font(.title2)
         } description: {
-          Text(
-            currentMode == .installed
-              ? "Choose an installed port to see its details."
-              : "Search for a port, then choose one to see its details.")
+          Text(emptyDetailMessage)
         } actions: {
           AppIconImage(size: 96)
         }
       }
+    }
+  }
+
+  /// "1.2_0 +universal (inactive), active: 1.3_0"
+  private func inactiveSubtitle(_ port: InstalledPort) -> String {
+    var text = "\(port.version)_\(port.revision)"
+    if !port.variants.isEmpty { text += " " + port.variants.map { "+" + $0 }.joined() }
+    text += " (inactive)"
+    if let active = activeVersion(of: port.name) {
+      text += ", active: \(active.version)_\(active.revision)"
+    }
+    return text
+  }
+
+  private func activeVersion(of name: String) -> InstalledPort? {
+    model.ports.first { $0.name == name && $0.isActive }
+  }
+
+  private var emptyDetailMessage: String {
+    switch currentMode {
+    case .installed: "Choose an installed port to see its details."
+    case .outdated: "Choose an outdated port to see its update."
+    case .inactive: "Choose an inactive version to activate or remove it."
+    default: "Search for a port, then choose one to see its details."
     }
   }
 
