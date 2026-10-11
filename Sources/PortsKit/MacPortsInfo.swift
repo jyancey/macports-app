@@ -125,21 +125,47 @@ extension MacPortsInfo {
   }
 }
 
+extension MacPortsInfo {
+  /// Where MacPorts keeps the ports tree for a source (as
+  /// `macports::getsourcepath` does): a `file://` source is used in place, a
+  /// tarball (snapshot) source is unpacked into a `ports` folder named after
+  /// the tarball's directory, and any other URL is mirrored by host and path.
+  public static func sourcePath(for url: String, dataPath: String) -> String {
+    if url.hasPrefix("file://") { return String(url.dropFirst("file://".count)) }
+    let parts = url.split(omittingEmptySubsequences: false) { $0 == ":" || $0 == "/" }
+      .map(String.init)
+    guard parts.count > 3 else { return dataPath + "/sources" }
+    let isSnapshot =
+      ["rsync", "http", "https", "ftp"].contains(parts[0])
+      && [".tar.gz", ".tar.bz2", ".tar"].contains { url.hasSuffix($0) }
+    let components =
+      isSnapshot ? parts[3..<(parts.count - 1)] + ["ports"] : parts[3...] + []
+    return ([dataPath, "sources"] + components.filter { !$0.isEmpty }).joined(separator: "/")
+  }
+
+  /// When any source's PortIndex was last rebuilt, which `port sync` and
+  /// `port selfupdate` do; nil if none is found.
+  static func lastSync(of sources: [String], dataPath: String) -> Date? {
+    sources.compactMap { source in
+      (try? FileManager.default.attributesOfItem(
+        atPath: sourcePath(for: source, dataPath: dataPath) + "/PortIndex"))?[.modificationDate]
+        as? Date
+    }.max()
+  }
+}
+
 extension PortClient {
   /// Runs `port version` once; everything else is read from the config files.
   public func macPortsInfo() async throws -> MacPortsInfo {
     let version = MacPortsInfo.parseVersion(try await run(["version"]))
     let conf = localConf()
-    let sync =
-      (try? FileManager.default.attributesOfItem(
-        atPath: conf.dataPath + "/sources/rsync.macports.org/macports/release/tarballs/PortIndex"))?[
-        .modificationDate] as? Date
+    let sources = MacPortsInfo.parseSources(Self.read(conf.sourcesConfPath))
     return MacPortsInfo(
       version: version, executablePath: executableURL.path,
       prefix: conf.values["prefix"] ?? conf.prefix, dataPath: conf.dataPath,
       applicationsDir: conf.values["applications_dir"] ?? "/Applications/MacPorts",
-      sources: MacPortsInfo.parseSources(Self.read(conf.sourcesConfPath)),
-      sourcesConfPath: conf.sourcesConfPath, lastSync: sync)
+      sources: sources, sourcesConfPath: conf.sourcesConfPath,
+      lastSync: MacPortsInfo.lastSync(of: sources, dataPath: conf.dataPath))
   }
 
   /// MacPorts' data directory (`portdbpath`), read from macports.conf
