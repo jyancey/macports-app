@@ -33,6 +33,13 @@ Early development. Currently implemented:
 - [x] Add and remove ports sources (sources.conf) from the Configuration tab
 - [x] Help menu with a quick guide and MacPorts links
 - [x] Registry database path/status in Configuration and read-only registry integrity check in Health
+- [x] Native toolbar search field; a Match menu on the Available tab chooses Name, Name & Description, Exact or Regex
+- [x] Menu commands and shortcuts: Find (⌘F), tabs (⌘1–⌘7), Refresh (⌘R), Activity log (⇧⌘L), sidebar (⌃⌘S), Stop (⌘.)
+- [x] Upgrade outdated ports from the Installed tab (marked in the Version column)
+- [x] Activate (roll back to) or remove an inactive version from its detail pane
+- [x] Context menus on the port tables (copy name or install command, plus the tab's actions); ⌘C copies names
+- [x] Multi-select on Outdated and Inactive to upgrade or remove several ports with one authorization prompt
+- [x] Stop a running command from the Activity pane (interrupts `port` and the builds it started)
 
 ## App icon
 

@@ -50,6 +50,54 @@ import Testing
     #expect(log.firstChunk == next)
   }
 
+  // MARK: Stop
+
+  /// A command that runs until it is asked to stop, then fails the way an
+  /// interrupted `port` does.
+  func runUntilStopped(_ log: ActivityLog) async {
+    await log.run("port build", name: "build") { out in
+      guard let stop = CommandStop.current else {
+        Issue.record("the command was not given a stop")
+        return
+      }
+      out("building\n")
+      while !stop.isRequested { try await Task.sleep(for: .milliseconds(2)) }
+      throw PortClientError.commandFailed(status: 130, stderr: "")
+    }
+  }
+
+  @Test func stoppedRunIsReportedAsStopped() async throws {
+    let log = ActivityLog()
+    #expect(!log.canStop)
+    let run = Task { await runUntilStopped(log) }
+    #expect(try await until { text(log).contains("building") })
+    #expect(log.canStop)
+    log.requestStop()
+    #expect(log.isStopping && !log.canStop)
+    await run.value
+    #expect(text(log).hasSuffix("building\nStopping…\nStopped\n\n"))
+    #expect(!log.lastRunFailed)
+    #expect(!log.isStopping && !log.canStop)
+  }
+
+  @Test func failureWithoutAStopIsStillAFailure() async {
+    let log = ActivityLog()
+    await run(log, [], failing: true)
+    #expect(log.lastRunFailed)
+    #expect(!text(log).contains("Stopped"))
+  }
+
+  @Test func eachRunGetsItsOwnStop() async throws {
+    let log = ActivityLog()
+    let first = Task { await runUntilStopped(log) }
+    #expect(try await until { log.canStop })
+    log.requestStop()
+    await first.value
+    // The next run is not stopped by the earlier request.
+    await run(log, ["two\n"])
+    #expect(text(log).hasSuffix("two\n✓ Finished\n\n"))
+  }
+
   // MARK: Text view
 
   func storageText(_ storage: NSTextStorage) -> String { storage.string }

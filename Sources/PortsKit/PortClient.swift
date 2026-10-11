@@ -161,7 +161,20 @@ public struct PortClient: Sendable {
     _ name: String,
     onOutput: @escaping @MainActor @Sendable (String) -> Void
   ) async throws {
-    try await runStreaming(action: "upgrade", name: name, onOutput: onOutput)
+    try await upgrade([name], onOutput: onOutput)
+  }
+
+  /// Upgrades several ports in one command (one authorization prompt).
+  public func upgrade(
+    _ names: [String],
+    onOutput: @escaping @MainActor @Sendable (String) -> Void
+  ) async throws {
+    guard !names.isEmpty else { return }
+    for name in names where !PortClient.isValidPortName(name) {
+      throw PortClientError.invalidName(name)
+    }
+    try await runStreaming(
+      action: "upgrade", arguments: names.joined(separator: " "), onOutput: onOutput)
   }
 
   /// Upgrades every outdated port.
@@ -175,13 +188,27 @@ public struct PortClient: Sendable {
     _ port: InstalledPort,
     onOutput: @escaping @MainActor @Sendable (String) -> Void
   ) async throws {
-    guard PortClient.isValidPortName(port.name) else {
-      throw PortClientError.invalidName(port.name)
-    }
-    let spec = "@\(port.version)_\(port.revision)" + port.variants.map { "+" + $0 }.joined()
-    guard PortClient.isValidVersionSpec(spec) else { throw PortClientError.invalidName(spec) }
+    try await uninstall([port], onOutput: onOutput)
+  }
+
+  /// Uninstalls several specific installed versions in one command (one
+  /// authorization prompt).
+  public func uninstall(
+    _ ports: [InstalledPort],
+    onOutput: @escaping @MainActor @Sendable (String) -> Void
+  ) async throws {
+    guard !ports.isEmpty else { return }
     try await runStreaming(
-      action: "uninstall", arguments: "\(port.name) \(spec)", onOutput: onOutput)
+      action: "uninstall", arguments: try PortClient.versionArguments(ports), onOutput: onOutput)
+  }
+
+  /// Activates one specific installed version of a port. `port` deactivates
+  /// the version that is active now first; it stays installed.
+  public func activate(
+    _ port: InstalledPort,
+    onOutput: @escaping @MainActor @Sendable (String) -> Void
+  ) async throws {
+    try await runStreaming(action: "activate", port: port, onOutput: onOutput)
   }
 
   /// Uninstalls every inactive version of every port.
@@ -239,6 +266,28 @@ public struct PortClient: Sendable {
     try await runStreaming(action: "sync", arguments: "", onOutput: onOutput)
   }
 
+  /// Runs `action` on one exact installed version, `name @version_revision+variants`.
+  private func runStreaming(
+    action: String, port: InstalledPort,
+    onOutput: @escaping @MainActor @Sendable (String) -> Void
+  ) async throws {
+    try await runStreaming(
+      action: action, arguments: try PortClient.versionArguments([port]), onOutput: onOutput)
+  }
+
+  /// `name @version_revision+variants` for each port, validated for the shell.
+  static func versionArguments(_ ports: [InstalledPort]) throws -> String {
+    try ports.map { port in
+      guard PortClient.isValidPortName(port.name) else {
+        throw PortClientError.invalidName(port.name)
+      }
+      guard PortClient.isValidVersionSpec(port.versionSpec) else {
+        throw PortClientError.invalidName(port.versionSpec)
+      }
+      return "\(port.name) \(port.versionSpec)"
+    }.joined(separator: " ")
+  }
+
   private func runStreaming(
     action: String, name: String,
     onOutput: @escaping @MainActor @Sendable (String) -> Void
@@ -272,8 +321,13 @@ public struct PortClient: Sendable {
       throw PortClientError.invalidName(log.path)
     }
 
-    let command =
-      "\(executableURL.path) -N \(verbose ? "-v " : "")\(action) \(arguments) > \(log.path) 2>&1"
+    let stopFile = directory.appendingPathComponent("stop")
+    let command = PortClient.stoppableCommand(
+      "\(executableURL.path) -N \(verbose ? "-v " : "")\(action) \(arguments)",
+      log: log.path, stopFile: stopFile.path)
+    let stop = CommandStop.current
+    stop?.register(stopFile)
+    defer { stop?.unregister() }
     let tail = Task.detached { await PortClient.tail(log, onOutput: onOutput) }
     do {
       try await runPrivileged(command)
@@ -284,6 +338,22 @@ public struct PortClient: Sendable {
     }
     tail.cancel()
     await tail.value
+  }
+
+  /// A shell command that runs `command` with its output in `log`, in its own
+  /// process group, and interrupts that whole group (so compilers `port`
+  /// started stop too) once `stopFile` exists; if it is still running five
+  /// seconds later, it is terminated. Exits with `command`'s status.
+  ///
+  /// `set -m` gives the background job its own process group; it also keeps
+  /// the job from ignoring SIGINT, as background jobs otherwise do. All parts
+  /// must already be validated: this is run by a root shell.
+  static func stoppableCommand(_ command: String, log: String, stopFile: String) -> String {
+    let signal = { (name: String) in "kill -\(name) -$p 2>/dev/null || kill -\(name) $p" }
+    return "set -m; \(command) > \(log) 2>&1 & p=$!; "
+      + "(while [ ! -e \(stopFile) ]; do sleep 0.2; done; "
+      + "\(signal("INT")); sleep 5; \(signal("TERM"))) >/dev/null 2>&1 & w=$!; "
+      + "wait $p; s=$?; kill -$w 2>/dev/null || kill $w 2>/dev/null; exit $s"
   }
 
   /// Adds a ports source to sources.conf. The edited file is staged in a

@@ -27,11 +27,12 @@ struct MacPortsApp: App {
 
   var body: some Scene {
     WindowGroup {
-      ContentView()
+      ContentView(activity: activity)
         .environment(activity)
         .frame(minWidth: 900, minHeight: 500)
     }
     .commands {
+      AppCommands(activity: activity)
       CommandGroup(replacing: .appInfo) {
         Button("About \(AppInfo.name)") { showAbout() }
       }

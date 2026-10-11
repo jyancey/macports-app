@@ -5,23 +5,34 @@ import SwiftUI
 // changes (rather than with everything ContentView reads), and computes its
 // filtered rows once per redraw.
 
-/// Title and count above a tab's content.
-struct PaneHeader: View {
+/// Title and count above a tab's content, with optional controls on the right.
+struct PaneHeader<Accessory: View>: View {
   let title: String
   let subtitle: String
+  @ViewBuilder var accessory: Accessory
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 2) {
-      Text(title)
-        .font(.title2.weight(.semibold))
-      Text(subtitle)
-        .font(.subheadline)
-        .foregroundStyle(.secondary)
+    HStack(alignment: .bottom) {
+      VStack(alignment: .leading, spacing: 2) {
+        Text(title)
+          .font(.title2.weight(.semibold))
+        Text(subtitle)
+          .font(.subheadline)
+          .foregroundStyle(.secondary)
+      }
+      Spacer()
+      accessory
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .padding(.horizontal, 16)
     .padding(.vertical, 10)
     .background(.bar)
+  }
+}
+
+extension PaneHeader where Accessory == EmptyView {
+  init(title: String, subtitle: String) {
+    self.init(title: title, subtitle: subtitle) { EmptyView() }
   }
 }
 
@@ -34,6 +45,10 @@ extension Array where Element == InstalledPort {
 
 struct InstalledListView: View {
   let model: InstalledPortsModel
+  /// Marks ports that have a newer version.
+  let outdated: OutdatedModel
+  /// Passed in rather than read from the environment, like `activity` below.
+  let actions: PortActions
   let filter: String
   @Binding var sortOrder: [KeyPathComparator<InstalledPort>]
   @Binding var selection: InstalledPort.ID?
@@ -52,13 +67,29 @@ struct InstalledListView: View {
         } else {
           Table(rows, selection: $selection, sortOrder: $sortOrder) {
             TableColumn("Name", value: \.name)
-            TableColumn("Version", value: \.version)
+            TableColumn("Version", value: \.version) { port in
+              HStack(spacing: 4) {
+                Text(port.version)
+                if let update = outdated.update(for: port) {
+                  Image(systemName: "arrow.up.circle.fill")
+                    .foregroundStyle(.tint)
+                    .help("Version \(update.availableVersion) is available")
+                    .accessibilityLabel("Update available")
+                }
+              }
+            }
             TableColumn("Variants") { Text($0.variants.map { "+" + $0 }.joined(separator: " ")) }
             TableColumn("Status") {
               Text($0.isActive ? "Active" : "Inactive")
                 .foregroundStyle($0.isActive ? .primary : .secondary)
             }
           }
+          .contextMenu(forSelectionType: InstalledPort.ID.self) { ids in
+            if ids.count == 1, let port = model.ports.first(where: { ids.contains($0.id) }) {
+              PortMenus.installedItems(port, update: outdated.update(for: port), actions: actions)
+            }
+          }
+          .copyable(model.ports.filter { $0.id == selection }.map(\.name))
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -68,9 +99,10 @@ struct InstalledListView: View {
 
 struct InactiveListView: View {
   let model: InstalledPortsModel
+  let actions: PortActions
   let filter: String
   @Binding var sortOrder: [KeyPathComparator<InstalledPort>]
-  @Binding var selection: InstalledPort.ID?
+  @Binding var selection: Set<InstalledPort.ID>
 
   var body: some View {
     let rows = model.ports.filter { !$0.isActive }.matching(filter).sorted(using: sortOrder)
@@ -89,6 +121,20 @@ struct InactiveListView: View {
               Text($0.variants.map { "+" + $0 }.joined(separator: " ")).foregroundStyle(.secondary)
             }
           }
+          .contextMenu(forSelectionType: InstalledPort.ID.self) { ids in
+            let ports = rows.filter { ids.contains($0.id) }
+            if ports.count == 1, let port = ports.first {
+              PortMenus.installedItems(port, update: nil, actions: actions)
+            } else if ports.count > 1 {
+              PortMenus.copyNamesItem(ports.map(\.name))
+              Divider()
+              Button("Remove \(ports.count) Versions", role: .destructive) {
+                Task { await actions.remove(ports) }
+              }
+              .disabled(actions.activity.isRunning)
+            }
+          }
+          .copyable(rows.filter { selection.contains($0.id) }.map(\.name))
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -111,12 +157,22 @@ struct SearchResultsView: View {
   /// always get environment objects (rebuilding the rows crashed with "No
   /// Observable object of type ActivityLog found").
   let activity: ActivityLog
+  let actions: PortActions
   let prebuiltOnly: Bool
+  /// How the search term is matched; changing it reruns the search.
+  @Binding var scope: SearchScope
   @Binding var selection: String?
 
   var body: some View {
     VStack(spacing: 0) {
-      PaneHeader(title: "Available Ports", subtitle: "\(searchModel.results.count) results")
+      PaneHeader(title: "Available Ports", subtitle: "\(searchModel.results.count) results") {
+        Picker("Match", selection: $scope) {
+          ForEach(SearchScope.allCases) { Text($0.rawValue).tag($0) }
+        }
+        .pickerStyle(.menu)
+        .fixedSize()
+        .help("Choose how the search term is matched against available ports")
+      }
       content
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -155,6 +211,20 @@ struct SearchResultsView: View {
           SearchStatus(progress: activity.progress[row.name], isInstalled: row.isInstalled)
         }
       }
+      .contextMenu(forSelectionType: String.self) { names in
+        if names.count == 1, let name = names.first {
+          PortMenus.copyItems(name: name, installCommand: "sudo port install \(name)")
+          Divider()
+          if installed.names.contains(name) {
+            Button("Uninstall…", role: .destructive) { actions.requestUninstall(name) }
+              .disabled(!actions.canStart(name))
+          } else {
+            Button("Install…") { Task { await actions.install(name) } }
+              .disabled(!actions.canStart(name))
+          }
+        }
+      }
+      .copyable(selection.map { [$0] } ?? [])
     }
   }
 }
@@ -212,9 +282,10 @@ struct BinaryHint: View {
 
 struct OutdatedListView: View {
   let model: OutdatedModel
+  let actions: PortActions
   let filter: String
   let prebuiltOnly: Bool
-  @Binding var selection: String?
+  @Binding var selection: Set<OutdatedPort.ID>
 
   var body: some View {
     VStack(spacing: 0) {
@@ -251,6 +322,21 @@ struct OutdatedListView: View {
         }
         .width(min: 70, ideal: 80, max: 100)
       }
+      .contextMenu(forSelectionType: OutdatedPort.ID.self) { ids in
+        let names = rows.filter { ids.contains($0.id) }.map(\.name)
+        if names.count == 1, let name = names.first {
+          PortMenus.copyItems(name: name, installCommand: nil)
+          Divider()
+          Button("Upgrade") { Task { await actions.upgrade(name) } }
+            .disabled(!actions.canStart(name))
+        } else if names.count > 1 {
+          PortMenus.copyNamesItem(names)
+          Divider()
+          Button("Upgrade \(names.count) Ports") { Task { await actions.upgrade(names) } }
+            .disabled(actions.activity.isRunning)
+        }
+      }
+      .copyable(rows.filter { selection.contains($0.id) }.map(\.name))
     }
   }
 }
