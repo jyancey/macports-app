@@ -76,7 +76,7 @@ struct InstalledListView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
           Table(rows, selection: $selection, sortOrder: $sortOrder) {
-            TableColumn("Name", value: \.name)
+            TableColumn("Name", value: \.name).width(min: 120, ideal: 160)
             TableColumn("Version", value: \.version) { port in
               HStack(spacing: 4) {
                 Text(port.version)
@@ -88,11 +88,13 @@ struct InstalledListView: View {
                 }
               }
             }
+            .width(min: 80, ideal: 100, max: 160)
             TableColumn("Variants") { Text($0.variants.map { "+" + $0 }.joined(separator: " ")) }
             TableColumn("Status") {
               Text($0.isActive ? "Active" : "Inactive")
                 .foregroundStyle($0.isActive ? .primary : .secondary)
             }
+            .width(min: 60, ideal: 70, max: 90)
           }
           .contextMenu(forSelectionType: InstalledPort.ID.self) { ids in
             if ids.count == 1, let port = model.ports.first(where: { ids.contains($0.id) }) {
@@ -125,8 +127,9 @@ struct InactiveListView: View {
             description: Text("Old versions left behind by upgrades appear here."))
         } else {
           Table(rows, selection: $selection, sortOrder: $sortOrder) {
-            TableColumn("Name", value: \.name)
+            TableColumn("Name", value: \.name).width(min: 120, ideal: 160)
             TableColumn("Version") { Text("\($0.version)_\($0.revision)") }
+              .width(min: 80, ideal: 100, max: 160)
             TableColumn("Variants") {
               Text($0.variants.map { "+" + $0 }.joined(separator: " ")).foregroundStyle(.secondary)
             }
@@ -208,7 +211,7 @@ struct SearchResultsView: View {
         : searchModel.results
       let rows = names.map { SearchRow(name: $0, isInstalled: installed.names.contains($0)) }
       Table(rows, selection: $selection) {
-        TableColumn("Name", value: \.name)
+        TableColumn("Name", value: \.name).width(min: 120, ideal: 200)
         TableColumn("Pre-built") { row in
           BinaryHint(
             value: searchModel.binary[row.name],
@@ -218,6 +221,7 @@ struct SearchResultsView: View {
         TableColumn("Status") { row in
           SearchStatus(progress: activity.progress[row.name], isInstalled: row.isInstalled)
         }
+        .width(min: 90, ideal: 120)
       }
       .contextMenu(forSelectionType: String.self) { names in
         if names.count == 1, let name = names.first {
@@ -373,9 +377,9 @@ struct OutdatedListView: View {
           && (!prebuiltOnly || model.binary[$0.name] == .available)
       }
       Table(rows, selection: $selection) {
-        TableColumn("Name", value: \.name)
-        TableColumn("Installed", value: \.installedVersion)
-        TableColumn("Available", value: \.availableVersion)
+        TableColumn("Name", value: \.name).width(min: 110, ideal: 150)
+        TableColumn("Installed", value: \.installedVersion).width(min: 70, ideal: 90, max: 140)
+        TableColumn("Available", value: \.availableVersion).width(min: 70, ideal: 90, max: 140)
         TableColumn("Pre-built") { row in
           BinaryHint(
             value: model.binary[row.name],
@@ -385,6 +389,7 @@ struct OutdatedListView: View {
         TableColumn("Status") { row in
           UpgradeStatus(progress: actions.activity.progress[row.name])
         }
+        .width(min: 70, ideal: 110)
       }
       .contextMenu(forSelectionType: OutdatedPort.ID.self) { ids in
         let names = rows.filter { ids.contains($0.id) }.map(\.name)
@@ -432,7 +437,7 @@ struct SelectionsListView: View {
         description: Text("Install ports such as clang or python to choose between versions."))
     } else {
       Table(model.groups, selection: $selection) {
-        TableColumn("Group", value: \.name)
+        TableColumn("Group", value: \.name).width(min: 100, ideal: 140)
         TableColumn("Selected") { group in
           Picker("Selected", selection: choice(for: group)) {
             ForEach(group.options.filter { $0 != "none" }, id: \.self) { Text($0).tag($0) }
