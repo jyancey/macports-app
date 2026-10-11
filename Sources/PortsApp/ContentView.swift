@@ -277,6 +277,7 @@ struct ContentView: View {
   @State private var selectionsModel = SelectionsModel()
   @State private var healthModel = HealthModel()
   @State private var configurationModel = ConfigurationModel()
+  @State private var detailCache = PortDetailCache()
   @State private var groupSelection: String?
   @State private var mode: BrowseMode? = .installed
   @State private var searchSelection: String?
@@ -317,6 +318,7 @@ struct ContentView: View {
 
   var body: some View {
     split
+    .environment(detailCache)
     .task { await model.load() }
     .task(id: outdatedModel.ports.map(\.availableVersion) + [String(model.ports.count)]) {
       outdatedModel.checkBinaries(installed: model.ports)
@@ -331,10 +333,12 @@ struct ContentView: View {
       outdatedModel.invalidate()
       selectionsModel.invalidate()
       configurationModel.invalidate()
+      detailCache.removeAll()
     }
   }
 
   private func refreshAll() async {
+    detailCache.removeAll()
     async let installed: Void = model.load()
     async let outdated: Void = outdatedModel.load()
     if currentMode == .selections { await selectionsModel.load() }

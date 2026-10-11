@@ -50,30 +50,51 @@ final class PortDetailModel {
 
   /// Loads everything but the dependency tree, showing each result as soon as
   /// it arrives. Files and dependents are only queried for installed ports.
-  func load(_ name: String, isInstalled: Bool) async {
-    info = .loading
-    files = isInstalled ? .loading : .loaded([])
-    dependents = isInstalled ? .loading : .loaded([])
-    binary = nil
+  /// Results already in `cache` are shown at once and not queried again;
+  /// new results are added to it.
+  func load(_ name: String, isInstalled: Bool, cache: PortDetailCache? = nil) async {
+    let cached = cache?[name] ?? PortDetailCache.Entry()
+    info = cached.info.map { .loaded($0) } ?? .loading
+    files = isInstalled ? cached.files.map { .loaded($0) } ?? .loading : .loaded([])
+    dependents = isInstalled ? cached.dependents.map { .loaded($0) } ?? .loading : .loaded([])
+    binary = cached.binary
+
+    let needsInfo = cached.info == nil
+    let needsFiles = isInstalled && cached.files == nil
+    let needsDependents = isInstalled && cached.dependents == nil
+    let needsVariants = cached.binary == nil && cached.defaultVariants == nil
+    guard needsInfo || needsFiles || needsDependents || cached.binary == nil else { return }
     if debounce > .zero { try? await Task.sleep(for: debounce) }
     guard !Task.isCancelled else { return }
 
     let source = self.source
     let binaryCheck = self.binaryCheck
     await withTaskGroup(of: Piece.self) { group in
-      group.addTask { .info(await Self.capture { try await source.info(for: name) }) }
-      group.addTask { .variants(try? await source.variants(of: name)) }
-      if isInstalled {
+      if needsInfo {
+        group.addTask { .info(await Self.capture { try await source.info(for: name) }) }
+      }
+      if needsVariants { group.addTask { .variants(try? await source.variants(of: name)) } }
+      if needsFiles {
         group.addTask { .files(await Self.capture { try await source.contents(of: name) }) }
+      }
+      if needsDependents {
         group.addTask {
           .dependents(await Self.capture { try await source.dependents(of: name) })
         }
       }
       // The binary check starts once both the version (info) and the default
       // variants are known, without waiting for files or dependents.
-      var loadedInfo: PortInfo?
-      var defaults: [String]?
-      var checkStarted = false
+      var loadedInfo = cached.info
+      var defaults = cached.defaultVariants
+      var checkStarted = cached.binary != nil
+      func startCheckIfReady() {
+        guard !checkStarted, let info = loadedInfo, let defaults else { return }
+        checkStarted = true
+        group.addTask {
+          .binary(await binaryCheck(name, info.version, info.revision, defaults))
+        }
+      }
+      startCheckIfReady()
       while let piece = await group.next() {
         guard !Task.isCancelled else {
           group.cancelAll()
@@ -82,18 +103,25 @@ final class PortDetailModel {
         switch piece {
         case .info(let result):
           info = result
-          if case .loaded(let value) = result { loadedInfo = value }
-        case .files(let result): files = result
-        case .dependents(let result): dependents = result
-        case .variants(let found): defaults = (found ?? []).filter(\.isDefault).map(\.name)
-        case .binary(let result): binary = result
-        }
-        if !checkStarted, let info = loadedInfo, let defaults {
-          checkStarted = true
-          group.addTask {
-            .binary(await binaryCheck(name, info.version, info.revision, defaults))
+          if case .loaded(let value) = result {
+            loadedInfo = value
+            cache?[name].info = value
           }
+        case .files(let result):
+          files = result
+          if case .loaded(let value) = result { cache?[name].files = value }
+        case .dependents(let result):
+          dependents = result
+          if case .loaded(let value) = result { cache?[name].dependents = value }
+        case .variants(let found):
+          let names = (found ?? []).filter(\.isDefault).map(\.name)
+          defaults = names
+          if found != nil { cache?[name].defaultVariants = names }
+        case .binary(let result):
+          binary = result
+          if result != .unknown { cache?[name].binary = result }
         }
+        startCheckIfReady()
       }
     }
   }
@@ -103,12 +131,17 @@ final class PortDetailModel {
     treeName == name ? tree : nil
   }
 
-  /// Loads the dependency tree of `name` unless it is loaded already.
-  func loadTree(_ name: String) async {
+  /// Loads the dependency tree of `name` unless it is loaded already or in
+  /// `cache`.
+  func loadTree(_ name: String, cache: PortDetailCache? = nil) async {
     if treeName == name, case .loaded = tree { return }
     treeRequest += 1
     let request = treeRequest
     treeName = name
+    if let nodes = cache?[name].tree {
+      tree = .loaded(nodes)
+      return
+    }
     tree = .loading
     let source = self.source
     let result = await Self.capture { try await source.dependencyTree(of: name) }
@@ -116,6 +149,7 @@ final class PortDetailModel {
     // query; leave it to be requested again.
     guard request == treeRequest else { return }
     tree = Task.isCancelled ? nil : result
+    if !Task.isCancelled, case .loaded(let nodes) = result { cache?[name].tree = nodes }
   }
 
   private var treeRequest = 0
@@ -147,6 +181,7 @@ struct PortDetailView: View {
   /// Called when the user clicks a dependency name to jump to that port.
   var onOpenPort: (String) -> Void = { _ in }
   @Environment(ActivityLog.self) private var activity
+  @Environment(PortDetailCache.self) private var detailCache
   @State private var model = PortDetailModel()
   /// The port whose dependency tree is expanded; showing another port collapses it.
   @State private var expandedTree: String?
@@ -174,11 +209,11 @@ struct PortDetailView: View {
       .frame(maxWidth: .infinity, alignment: .leading)
     }
     .task(id: LoadKey(name: name, isInstalled: isInstalled)) {
-      await model.load(name, isInstalled: isInstalled)
+      await model.load(name, isInstalled: isInstalled, cache: detailCache)
     }
     // Collapsing the tree or showing another port cancels `port rdeps`.
     .task(id: expandedTree == name ? name : nil) {
-      if expandedTree == name { await model.loadTree(name) }
+      if expandedTree == name { await model.loadTree(name, cache: detailCache) }
     }
     .sheet(isPresented: $showInstallOptions) {
       InstallOptionsView(name: name) { install(flags: $0) }
