@@ -268,6 +268,7 @@ struct ContentView: View {
   }
 
   @State private var isSidebarVisible = true
+  @FocusState private var searchFocused: Bool
 
   private var currentMode: BrowseMode { mode ?? .installed }
   private var isSinglePaneMode: Bool {
@@ -298,6 +299,22 @@ struct ContentView: View {
       configurationModel.invalidate()
       detailCache.removeAll()
     }
+    .focusedSceneValue(\.windowActions, windowActions)
+  }
+
+  /// What the menu bar commands do in this window.
+  private var windowActions: WindowActions {
+    WindowActions(
+      mode: currentMode,
+      showMode: { mode = $0 },
+      isSidebarVisible: isSidebarVisible,
+      toggleSidebar: { isSidebarVisible.toggle() },
+      isActivityVisible: activity.isVisible,
+      toggleActivity: { activity.isVisible.toggle() },
+      canRefresh: !(model.isLoading || outdatedModel.isLoading),
+      refresh: { Task { await refreshAll() } },
+      canSearch: searchIsEnabled,
+      focusSearch: { if searchIsEnabled { searchFocused = true } })
   }
 
   private func refreshAll() async {
@@ -450,6 +467,7 @@ struct ContentView: View {
           model: model, filter: search, sortOrder: $sortOrder, selection: $selection
         )
         .searchable(text: $search, placement: .toolbar, prompt: Text(searchPrompt))
+        .searchFocused($searchFocused)
       case .available:
         SearchResultsView(
           searchModel: searchModel, installed: model, activity: activity,
@@ -457,17 +475,20 @@ struct ContentView: View {
           selection: $searchSelection
         )
         .searchable(text: $search, placement: .toolbar, prompt: Text(searchPrompt))
+        .searchFocused($searchFocused)
       case .outdated:
         OutdatedListView(
           model: outdatedModel, filter: search, prebuiltOnly: prebuiltOnly,
           selection: $outdatedSelection
         )
         .searchable(text: $search, placement: .toolbar, prompt: Text(searchPrompt))
+        .searchFocused($searchFocused)
       case .inactive:
         InactiveListView(
           model: model, filter: search, sortOrder: $sortOrder, selection: $inactiveSelection
         )
         .searchable(text: $search, placement: .toolbar, prompt: Text(searchPrompt))
+        .searchFocused($searchFocused)
       case .selections:
         SelectionsListView(model: selectionsModel, selection: $groupSelection)
       case .health:
