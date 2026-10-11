@@ -45,7 +45,7 @@ public enum BinaryArchive {
   /// revision, built with exactly `variants`, for `platform`/`arch` (or
   /// platform-independent).
   public static func hasArchive(
-    in listing: [String], name: String, version: String, revision: Int,
+    in listing: some Collection<String>, name: String, version: String, revision: Int,
     variants: [String], platform: String, arch: String
   ) -> Bool {
     let base = "\(name)-\(version)_\(revision)" + variants.sorted().map { "+" + $0 }.joined()
@@ -60,7 +60,7 @@ public enum BinaryArchive {
   /// platform-independent), whatever its version or variants. A cheap hint
   /// for lists; the detail view checks exactly.
   public static func hasAnyArchive(
-    in listing: [String], name: String, platform: String, arch: String
+    in listing: some Collection<String>, name: String, platform: String, arch: String
   ) -> Bool {
     let suffixes = [
       ".\(platform).\(arch).tbz2", ".darwin_any.noarch.tbz2", ".any_any.noarch.tbz2",
@@ -74,20 +74,14 @@ public enum BinaryArchive {
   /// Whether the archive site has any build of `name` for this Mac.
   /// Best effort: failures are `.unknown`.
   public static func anyBuildAvailability(name: String) async -> BinaryAvailability {
-    guard PortClient.isValidPortName(name) else { return .unknown }
-    var request = URLRequest(url: archiveSite.appendingPathComponent(name, isDirectory: true))
-    request.timeoutInterval = 10
-    do {
-      let (data, response) = try await URLSession.shared.data(for: request)
-      guard let http = response as? HTTPURLResponse else { return .unknown }
-      if http.statusCode == 404 { return .unavailable }
-      guard http.statusCode == 200 else { return .unknown }
-      let (platform, arch) = currentPlatform()
-      return hasAnyArchive(
-        in: parseListing(String(decoding: data, as: UTF8.self)),
-        name: name, platform: platform, arch: arch) ? .available : .unavailable
-    } catch {
-      return .unknown
+    await anyBuildAvailability(name: name, cache: .shared)
+  }
+
+  static func anyBuildAvailability(name: String, cache: ArchiveListingCache) async
+    -> BinaryAvailability
+  {
+    await lookUp(name, in: cache) { files in
+      hasAnyArchive(in: files, name: name, platform: platform.platform, arch: platform.arch)
     }
   }
 
@@ -96,23 +90,31 @@ public enum BinaryArchive {
   public static func availability(
     name: String, version: String, revision: Int, variants: [String]
   ) async -> BinaryAvailability {
+    await availability(
+      name: name, version: version, revision: revision, variants: variants, cache: .shared)
+  }
+
+  static func availability(
+    name: String, version: String, revision: Int, variants: [String], cache: ArchiveListingCache
+  ) async -> BinaryAvailability {
+    await lookUp(name, in: cache) { files in
+      hasArchive(
+        in: files, name: name, version: version, revision: revision,
+        variants: variants, platform: platform.platform, arch: platform.arch)
+    }
+  }
+
+  /// This Mac's platform tag never changes while the app runs.
+  private static let platform = currentPlatform()
+
+  private static func lookUp(
+    _ name: String, in cache: ArchiveListingCache, matches: (Set<String>) -> Bool
+  ) async -> BinaryAvailability {
     guard PortClient.isValidPortName(name) else { return .unknown }
-    let url = archiveSite.appendingPathComponent(name, isDirectory: true)
-    var request = URLRequest(url: url)
-    request.timeoutInterval = 10
-    do {
-      let (data, response) = try await URLSession.shared.data(for: request)
-      guard let http = response as? HTTPURLResponse else { return .unknown }
-      if http.statusCode == 404 { return .unavailable }
-      guard http.statusCode == 200 else { return .unknown }
-      let listing = parseListing(String(decoding: data, as: UTF8.self))
-      let (platform, arch) = currentPlatform()
-      return hasArchive(
-        in: listing, name: name, version: version, revision: revision,
-        variants: variants, platform: platform, arch: arch)
-        ? .available : .unavailable
-    } catch {
-      return .unknown
+    switch try? await cache.listing(for: name) {
+    case .files(let files): return matches(files) ? .available : .unavailable
+    case .missing: return .unavailable
+    case nil: return .unknown
     }
   }
 }
