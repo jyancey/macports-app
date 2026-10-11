@@ -33,9 +33,20 @@ final class ActivityLog {
 
   static let autoOpenKey = "autoOpenActivity"
 
+  /// Called when a command finishes or fails (not when the user cancelled or
+  /// stopped it). The default bounces the Dock icon, which macOS only does
+  /// while the app is in the background.
+  @ObservationIgnored private let onCommandEnded: @MainActor () -> Void
+
   /// Past `maxLines`, the oldest output is dropped (whole chunks, keeping the newest).
-  init(maxLines: Int = 5000) {
+  init(
+    maxLines: Int = 5000,
+    onCommandEnded: @escaping @MainActor () -> Void = {
+      NSApp?.requestUserAttention(.informationalRequest)
+    }
+  ) {
     self.maxLines = maxLines
+    self.onCommandEnded = onCommandEnded
   }
 
   var isEmpty: Bool { chunks.isEmpty }
@@ -89,6 +100,7 @@ final class ActivityLog {
         try await work { [weak self] text in self?.append(text) }
       }
       append("✓ Finished\n\n")
+      onCommandEnded()
       return true
     } catch PortClientError.cancelled {
       append("Cancelled\n\n")
@@ -98,6 +110,7 @@ final class ActivityLog {
       lastRunFailed = true
       // A failure is always shown, even when the pane doesn't open for new commands.
       isVisible = true
+      onCommandEnded()
       append("✗ \(error.localizedDescription)\n\n")
     }
     return false
