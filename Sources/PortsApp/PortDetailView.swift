@@ -409,11 +409,8 @@ struct PortDetailView: View {
     switch model.files {
     case .loaded(let files) where !files.isEmpty:
       DisclosureGroup("Installed files (\(files.count))") {
-        LazyVStack(alignment: .leading, spacing: 2) {
-          ForEach(files, id: \.self) { Text($0).font(.caption.monospaced()) }
-        }
-        .textSelection(.enabled)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        FileListView(files: files)
+          .frame(maxWidth: .infinity, alignment: .leading)
       }
     default:
       EmptyView()

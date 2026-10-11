@@ -29,3 +29,56 @@ enum MonospacedTextView {
     return scrollView
   }
 }
+
+/// A port's installed files as one text view, instead of one view per file
+/// (python314 installs over 8,000). Grows with the list up to `maxHeight`,
+/// then scrolls.
+struct FileListView: NSViewRepresentable {
+  let files: [String]
+  var maxHeight: CGFloat = 300
+
+  final class Coordinator {
+    var shown: [String] = []
+  }
+
+  func makeCoordinator() -> Coordinator { Coordinator() }
+
+  func makeNSView(context: Context) -> NSScrollView {
+    let scrollView = MonospacedTextView.makeScrollView()
+    // One file per line, scrolling sideways for long paths, so the height
+    // computed in sizeThatFits matches what is shown.
+    if let textView = scrollView.documentView as? NSTextView {
+      textView.isHorizontallyResizable = true
+      textView.maxSize = NSSize(
+        width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+      textView.textContainer?.widthTracksTextView = false
+      textView.textContainer?.containerSize = NSSize(
+        width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+    }
+    scrollView.hasHorizontalScroller = true
+    show(files, in: scrollView, coordinator: context.coordinator)
+    return scrollView
+  }
+
+  func updateNSView(_ scrollView: NSScrollView, context: Context) {
+    // Arrays sharing storage compare in constant time, so this is cheap when
+    // the list hasn't changed.
+    guard files != context.coordinator.shown else { return }
+    show(files, in: scrollView, coordinator: context.coordinator)
+  }
+
+  private func show(_ files: [String], in scrollView: NSScrollView, coordinator: Coordinator) {
+    coordinator.shown = files
+    let textView = scrollView.documentView as? NSTextView
+    textView?.textStorage?.setAttributedString(
+      NSAttributedString(
+        string: files.joined(separator: "\n"), attributes: MonospacedTextView.attributes))
+  }
+
+  func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize?
+  {
+    let lineHeight = NSLayoutManager().defaultLineHeight(for: MonospacedTextView.font)
+    let height = CGFloat(files.count) * lineHeight + 2 * MonospacedTextView.inset.height
+    return CGSize(width: proposal.width ?? 400, height: min(height, maxHeight))
+  }
+}
