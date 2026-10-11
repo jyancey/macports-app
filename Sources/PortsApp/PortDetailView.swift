@@ -31,7 +31,7 @@ final class PortDetailModel {
   /// `debounce` delays the first query so that moving quickly through a list
   /// doesn't start `port` for every row passed over.
   init(
-    source: any PortDetailSource = PortClient(),
+    source: any PortDetailSource = ConfiguredPortClient(),
     binaryCheck: @escaping BinaryCheck = BinaryArchive.availability,
     debounce: Duration = .milliseconds(120)
   ) {

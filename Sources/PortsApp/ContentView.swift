@@ -12,14 +12,13 @@ final class InstalledPortsModel {
   var isLoading = false
   var errorMessage: String?
 
-  private let client = PortClient()
-
   func load() async {
     isLoading = true
     errorMessage = nil
     defer { isLoading = false }
     do {
-      ports = try await client.installedPorts()
+      // A new client each time, so a changed `port` path applies at once.
+      ports = try await PortClient().installedPorts()
     } catch {
       ports = []
       errorMessage = error.localizedDescription
@@ -48,10 +47,11 @@ final class SearchModel {
   private let binaryHint: BinaryHint
   private static let binaryCheckLimit = 100
 
-  /// Defaults run `port search` and query the archive site; tests substitute their own.
+  /// Defaults run `port search` (with the `port` path configured at the time)
+  /// and query the archive site; tests substitute their own.
   init(
-    search: @escaping Search = { [client = PortClient()] term, scope in
-      try await client.search(term, scope: scope)
+    search: @escaping Search = { term, scope in
+      try await PortClient().search(term, scope: scope)
     },
     binaryHint: @escaping BinaryHint = BinaryArchive.anyBuildAvailability
   ) {
