@@ -236,3 +236,38 @@ extension Gates {
     #expect(model.update(for: other) == nil)
   }
 }
+
+@MainActor
+@Suite struct HealthSummaryTests {
+  struct Failure: Error, LocalizedError {
+    var errorDescription: String? { "Terminal is not available" }
+  }
+
+  func finding(_ severity: DiagnosticFinding.Severity, _ message: String) -> DiagnosticFinding {
+    DiagnosticFinding(severity: severity, message: message)
+  }
+
+  @Test func errorsComeFirstAndAreCounted() async {
+    let found = [finding(.warning, "w1"), finding(.error, "e1"), finding(.warning, "w2")]
+    let model = HealthModel(diagnose: { found })
+    #expect(model.summary == nil)
+    await model.check()
+    #expect(model.sortedFindings.map(\.message) == ["e1", "w1", "w2"])
+    #expect(model.summary == "1 error, 2 warnings")
+  }
+
+  @Test func noFindingsHasNoSummary() async {
+    let model = HealthModel(diagnose: { [] })
+    await model.check()
+    #expect(model.summary == nil)
+  }
+
+  @Test func reclaimFailureDoesNotReplaceTheDiagnoseResult() async {
+    let model = HealthModel(diagnose: { [] }, reclaim: { throw Failure() })
+    await model.check()
+    await model.reclaimInTerminal()
+    #expect(model.reclaimFailure == "Terminal is not available")
+    #expect(model.failure == nil)
+    #expect(model.findings == [])
+  }
+}
