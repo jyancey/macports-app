@@ -10,6 +10,9 @@ final class ActivityLog {
   /// True when the most recent run ended in an error.
   private(set) var lastRunFailed = false
   private(set) var runningName: String?
+  /// Counts finished runs. Any run may have changed the system, so cached tab
+  /// data watches this to know when it is out of date.
+  private(set) var completedRuns = 0
   var isVisible = false
   /// Live status of each port the current run is touching, including dependencies.
   private(set) var progress: [String: PortProgress] = [:]
@@ -37,6 +40,7 @@ final class ActivityLog {
       isRunning = false
       runningName = nil
       progress = [:]
+      completedRuns += 1
     }
     do {
       try await work { [weak self] text in self?.append(text) }

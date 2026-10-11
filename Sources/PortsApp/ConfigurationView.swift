@@ -1,6 +1,46 @@
 import PortsKit
 import SwiftUI
 
+/// MacPorts facts for the Configuration tab. Owned by `ContentView` so they
+/// survive switching tabs; reloaded when stale or after a command.
+@MainActor
+@Observable
+final class ConfigurationModel {
+  private(set) var info: MacPortsInfo?
+  private(set) var failure: String?
+
+  typealias Fetch = @Sendable () async throws -> MacPortsInfo
+  private let fetch: Fetch
+  @ObservationIgnored private var freshness = Freshness()
+
+  /// The default reads the configured `port` path on each load, so a new path
+  /// takes effect immediately.
+  init(fetch: @escaping Fetch = { try await PortClient().macPortsInfo() }) {
+    self.fetch = fetch
+  }
+
+  /// Loads unless the facts were loaded recently and nothing has changed since.
+  func loadIfStale() async {
+    if freshness.isStale { await load() }
+  }
+
+  /// Marks the facts out of date, such as after a command changed the system.
+  func invalidate() { freshness.invalidate() }
+
+  func load() async {
+    let token = freshness.begin()
+    do {
+      info = try await fetch()
+      failure = nil
+      freshness.markLoaded(token)
+    } catch is CancellationError {
+      // Leaving the tab cancels the load; keep what was there.
+    } catch {
+      failure = error.localizedDescription
+    }
+  }
+}
+
 /// App preferences and facts about the local MacPorts installation.
 struct ConfigurationView: View {
   @Binding private var search: String
@@ -16,13 +56,15 @@ struct ConfigurationView: View {
   @State private var newSource = ""
   @State private var sourceError: String?
   @State private var sourceToRemove: String?
-  @State private var info: MacPortsInfo?
-  @State private var failure: String?
+  private let model: ConfigurationModel
+  private var info: MacPortsInfo? { model.info }
+  private var failure: String? { model.failure }
 
   init(
-    search: Binding<String>, scope: Binding<SearchScope>, installedCount: Int,
-    onSearch: @escaping () -> Void
+    search: Binding<String>, scope: Binding<SearchScope>, model: ConfigurationModel,
+    installedCount: Int, onSearch: @escaping () -> Void
   ) {
+    self.model = model
     _search = search
     _scope = scope
     self.installedCount = installedCount
@@ -116,7 +158,7 @@ struct ConfigurationView: View {
     }
     .task {
       pathDraft = PortClient.configuredExecutablePath
-      await loadInfo()
+      await model.loadIfStale()
     }
     .toolbar {
       ToolbarItemGroup {
@@ -249,12 +291,7 @@ struct ConfigurationView: View {
     if panel.runModal() == .OK, let url = panel.url { pathDraft = url.path }
   }
 
-  private func loadInfo() async {
-    do {
-      info = try await PortClient().macPortsInfo()
-      failure = nil
-    } catch { failure = error.localizedDescription }
-  }
+  private func loadInfo() async { await model.load() }
 
   private func runMaintenance(
     _ title: String, name: String,

@@ -118,12 +118,34 @@ final class SelectionsModel {
   var isLoading = false
   var errorMessage: String?
 
+  typealias Fetch = @Sendable () async throws -> [PortSelectGroup]
+  private let fetch: Fetch
+  @ObservationIgnored private var freshness = Freshness()
+
+  init(fetch: @escaping Fetch = { try await PortClient().selections() }) {
+    self.fetch = fetch
+  }
+
+  /// Loads unless the groups were loaded recently and nothing has changed since.
+  func loadIfStale() async {
+    if freshness.isStale { await load() }
+  }
+
+  /// Marks the groups out of date, such as after a command changed the system.
+  func invalidate() { freshness.invalidate() }
+
   func load() async {
+    let token = freshness.begin()
+    let previousError = errorMessage
     isLoading = true
     errorMessage = nil
     defer { isLoading = false }
     do {
-      groups = try await PortClient().selections()
+      groups = try await fetch()
+      freshness.markLoaded(token)
+    } catch is CancellationError {
+      // Leaving the tab cancels the load; keep what was there.
+      errorMessage = previousError
     } catch {
       groups = []
       errorMessage = error.localizedDescription
@@ -142,7 +164,13 @@ final class OutdatedModel {
   private(set) var binary: [String: BinaryAvailability] = [:]
   private var binaryTask: Task<Void, Never>?
 
-  private let client = PortClient()
+  typealias Fetch = @Sendable () async throws -> [OutdatedPort]
+  private let fetch: Fetch
+  @ObservationIgnored private var freshness = Freshness()
+
+  init(fetch: @escaping Fetch = { try await PortClient().outdated() }) {
+    self.fetch = fetch
+  }
 
   func checkBinaries(installed: [InstalledPort]) {
     binaryTask?.cancel()
@@ -181,12 +209,26 @@ final class OutdatedModel {
     }
   }
 
+  /// Loads unless the list was loaded recently and nothing has changed since.
+  func loadIfStale() async {
+    if freshness.isStale { await load() }
+  }
+
+  /// Marks the list out of date, such as after a command changed the system.
+  func invalidate() { freshness.invalidate() }
+
   func load() async {
+    let token = freshness.begin()
+    let previousError = errorMessage
     isLoading = true
     errorMessage = nil
     defer { isLoading = false }
     do {
-      ports = try await client.outdated()
+      ports = try await fetch()
+      freshness.markLoaded(token)
+    } catch is CancellationError {
+      // Leaving the tab cancels the load; keep what was there.
+      errorMessage = previousError
     } catch {
       ports = []
       errorMessage = error.localizedDescription
@@ -233,6 +275,8 @@ struct ContentView: View {
   @State private var outdatedSelection: String?
   @State private var inactiveSelection: InstalledPort.ID?
   @State private var selectionsModel = SelectionsModel()
+  @State private var healthModel = HealthModel()
+  @State private var configurationModel = ConfigurationModel()
   @State private var groupSelection: String?
   @State private var mode: BrowseMode? = .installed
   @State private var searchSelection: String?
@@ -279,15 +323,23 @@ struct ContentView: View {
     }
     .task(id: mode) {
       if !searchIsEnabled { search = "" }
-      if currentMode == .outdated { await outdatedModel.load() }
-      if currentMode == .selections { await selectionsModel.load() }
+      if currentMode == .outdated { await outdatedModel.loadIfStale() }
+      if currentMode == .selections { await selectionsModel.loadIfStale() }
+    }
+    .onChange(of: activity.completedRuns) {
+      // A command may have changed what these show; reload on the next visit.
+      outdatedModel.invalidate()
+      selectionsModel.invalidate()
+      configurationModel.invalidate()
     }
   }
 
   private func refreshAll() async {
-    await model.load()
-    await outdatedModel.load()
+    async let installed: Void = model.load()
+    async let outdated: Void = outdatedModel.load()
     if currentMode == .selections { await selectionsModel.load() }
+    if currentMode == .configuration { await configurationModel.load() }
+    _ = await (installed, outdated)
   }
 
   private var upgradeAllButton: some View {
@@ -607,6 +659,7 @@ struct ContentView: View {
       ConfigurationView(
         search: $search,
         scope: $scope,
+        model: configurationModel,
         installedCount: model.ports.count,
         onSearch: {
           guard currentMode == .available else { return }
@@ -614,7 +667,7 @@ struct ContentView: View {
         })
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     } else if currentMode == .health {
-      HealthView()
+      HealthView(model: healthModel)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     } else {
       searchableList
