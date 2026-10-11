@@ -87,12 +87,14 @@ struct ConfigurationView: View {
           row("Data directory", info.dataPath)
           row("Registry database", info.registryPath)
           LabeledContent("Registry status") {
-            Label(
-              model.registryReadable ? "Present and readable" : "Missing or unreadable",
-              systemImage: model.registryReadable
-                ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
-            )
-            .foregroundStyle(model.registryReadable ? .green : .orange)
+            if model.registryReadable {
+              StatusLabel(
+                "Present and readable", systemImage: "checkmark.circle.fill", color: .green)
+            } else {
+              StatusLabel(
+                "Missing or unreadable", systemImage: "exclamationmark.triangle.fill",
+                color: .orange)
+            }
           }
           row("Applications", info.applicationsDir)
           row("Installed ports", "\(installedCount)")
@@ -113,7 +115,7 @@ struct ConfigurationView: View {
         } else if let failure {
           Text(failure).foregroundStyle(.secondary)
         } else {
-          ProgressView()
+          ProgressView("Reading MacPorts settings…")
         }
       }
       Section("Add a source") {
@@ -125,8 +127,8 @@ struct ConfigurationView: View {
             .disabled(!MacPortsInfo.isValidSourceURL(trimmedSource) || activity.isRunning)
         }
         if let sourceError {
-          Label(sourceError, systemImage: "exclamationmark.triangle.fill")
-            .font(.caption).foregroundStyle(.orange)
+          StatusLabel(sourceError, systemImage: "exclamationmark.triangle.fill", color: .orange)
+            .font(.caption)
         }
         Text(
           "Adds a ports tree to sources.conf (uses macOS administrator authorization). "
@@ -233,8 +235,8 @@ struct ConfigurationView: View {
         }
       }
       if let problem = draftProblem {
-        Label(problem, systemImage: "exclamationmark.triangle.fill")
-          .font(.caption).foregroundStyle(.orange)
+        StatusLabel(problem, systemImage: "exclamationmark.triangle.fill", color: .orange)
+          .font(.caption)
       } else {
         Text("Point this at a MacPorts installed outside /opt/local. Takes effect immediately.")
           .font(.caption).foregroundStyle(.secondary)

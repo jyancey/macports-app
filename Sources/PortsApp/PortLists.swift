@@ -72,7 +72,8 @@ struct InstalledListView: View {
             }
           }
         } else if model.isLoading && model.ports.isEmpty {
-          ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+          ProgressView("Loading installed ports…")
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
           Table(rows, selection: $selection, sortOrder: $sortOrder) {
             TableColumn("Name", value: \.name)
@@ -322,13 +323,17 @@ struct BinaryHint: View {
     case .available:
       Image(systemName: "checkmark.seal.fill").foregroundStyle(.green)
         .help("A pre-built binary exists for this Mac")
+        .accessibilityLabel("Pre-built binary available")
     case .unavailable:
       Text("–").foregroundStyle(.secondary).help("No pre-built binary found; builds from source")
+        .accessibilityLabel("Builds from source")
     case .unknown:
       Text("?").foregroundStyle(.secondary).help("Couldn't reach the archive server")
+        .accessibilityLabel("Pre-built status unknown")
     case nil:
       if pending {
         ProgressView().controlSize(.mini)
+          .accessibilityLabel("Checking for a pre-built binary")
       } else {
         Text("")
       }
@@ -420,7 +425,7 @@ struct SelectionsListView: View {
         Task { await model.load() }
       }
     } else if model.isLoading && model.groups.isEmpty {
-      ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+      ProgressView("Loading selections…").frame(maxWidth: .infinity, maxHeight: .infinity)
     } else if model.groups.isEmpty {
       ContentUnavailableView(
         "No selection groups", systemImage: "arrow.left.arrow.right.circle",

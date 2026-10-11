@@ -20,7 +20,7 @@ struct SelectionDetailView: View {
             Text(option)
             Spacer()
             if option == group.selected {
-              Label("Selected", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+              StatusLabel("Selected", systemImage: "checkmark.circle.fill", color: .green)
             } else {
               Button("Select") { apply(option) }.disabled(activity.isRunning)
             }
