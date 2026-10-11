@@ -558,14 +558,13 @@ struct ContentView: View {
           if isSinglePaneMode {
             mainPane
           } else {
-            HStack(spacing: 0) {
+            // An AppKit split view, so the divider between the list and the
+            // detail can be dragged.
+            HSplitView {
               mainPane
                 .frame(minWidth: 380, idealWidth: 460, maxHeight: .infinity)
-
-              Divider()
-
               detailPane
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
             }
           }
         }
