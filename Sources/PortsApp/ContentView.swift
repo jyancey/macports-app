@@ -243,16 +243,17 @@ enum BrowseMode: String, CaseIterable, Identifiable {
 }
 
 struct ContentView: View {
-  @Environment(ActivityLog.self) private var activity
-  @State private var model = InstalledPortsModel()
+  private let activity: ActivityLog
+  @State private var model: InstalledPortsModel
   @State private var searchModel = SearchModel()
-  @State private var outdatedModel = OutdatedModel()
+  @State private var outdatedModel: OutdatedModel
   @State private var outdatedSelection: String?
   @State private var inactiveSelection: InstalledPort.ID?
   @State private var selectionsModel = SelectionsModel()
   @State private var healthModel = HealthModel()
   @State private var configurationModel = ConfigurationModel()
-  @State private var detailCache = PortDetailCache()
+  @State private var detailCache: PortDetailCache
+  @State private var actions: PortActions
   @State private var groupSelection: String?
   @State private var mode: BrowseMode? = .installed
   @State private var searchSelection: String?
@@ -270,6 +271,21 @@ struct ContentView: View {
   @State private var isSidebarVisible = true
   @FocusState private var searchFocused: Bool
 
+  init(activity: ActivityLog) {
+    self.activity = activity
+    // Created together so that the actions reload these same models.
+    let installed = InstalledPortsModel()
+    let outdated = OutdatedModel()
+    let cache = PortDetailCache()
+    _model = State(initialValue: installed)
+    _outdatedModel = State(initialValue: outdated)
+    _detailCache = State(initialValue: cache)
+    _actions = State(
+      initialValue: PortActions(activity: activity) {
+        await Self.reloadPorts(installed: installed, outdated: outdated, cache: cache)
+      })
+  }
+
   private var currentMode: BrowseMode { mode ?? .installed }
   private var isSinglePaneMode: Bool {
     currentMode == .health || currentMode == .configuration
@@ -278,6 +294,25 @@ struct ContentView: View {
   var body: some View {
     split
     .environment(detailCache)
+    .environment(actions)
+    .sheet(item: $actions.installRequest) { request in
+      InstallOptionsView(name: request.name) { flags in
+        Task { await actions.install(request.name, flags: flags) }
+      }
+    }
+    .confirmationDialog(
+      "Uninstall \(actions.uninstallRequest ?? "")?",
+      isPresented: Binding(
+        get: { actions.uninstallRequest != nil },
+        set: { if !$0 { actions.uninstallRequest = nil } }),
+      presenting: actions.uninstallRequest
+    ) { name in
+      Button("Uninstall", role: .destructive) { Task { await actions.confirmUninstall(name) } }
+    } message: { _ in
+      Text(
+        "This removes the port from your system. macOS administrator authorization will be requested."
+      )
+    }
     .task {
       await model.load()
       // Load the outdated list up front so its tab opens at once and the
@@ -317,23 +352,27 @@ struct ContentView: View {
       focusSearch: { if searchIsEnabled { searchFocused = true } })
   }
 
+  /// Reloads the installed and outdated lists and forgets cached port details.
+  private static func reloadPorts(
+    installed: InstalledPortsModel, outdated: OutdatedModel, cache: PortDetailCache
+  ) async {
+    cache.removeAll()
+    async let installedLoad: Void = installed.load()
+    async let outdatedLoad: Void = outdated.load()
+    _ = await (installedLoad, outdatedLoad)
+  }
+
   private func refreshAll() async {
-    detailCache.removeAll()
-    async let installed: Void = model.load()
-    async let outdated: Void = outdatedModel.load()
+    async let ports: Void = Self.reloadPorts(
+      installed: model, outdated: outdatedModel, cache: detailCache)
     if currentMode == .selections { await selectionsModel.load() }
     if currentMode == .configuration { await configurationModel.load() }
-    _ = await (installed, outdated)
+    await ports
   }
 
   private var upgradeAllButton: some View {
     Button("Upgrade All", systemImage: "desktopcomputer.and.arrow.down") {
-      Task {
-        await activity.run("sudo port upgrade outdated", name: "outdated") { out in
-          try await PortClient().upgradeAll(onOutput: out)
-        }
-        await refreshAll()
-      }
+      Task { await actions.upgradeAll() }
     }
     .disabled(activity.isRunning || outdatedModel.ports.isEmpty)
     .help("Upgrade every outdated port")
@@ -344,25 +383,16 @@ struct ContentView: View {
       Button("Remove Selected", systemImage: "eraser.badge.xmark") {
         guard let port = model.ports.first(where: { $0.id == inactiveSelection }) else { return }
         Task {
-          _ = await activity.run(
-            "sudo port uninstall \(port.name) @\(port.version)_\(port.revision)",
-            name: port.name
-          ) { out in
-            try await PortClient().uninstall(port, onOutput: out)
-          }
+          await actions.remove(port)
           inactiveSelection = nil
-          await model.load()
         }
       }
       .disabled(activity.isRunning || inactiveSelection == nil)
       .help("Remove the selected inactive version")
       Button("Remove All", systemImage: "eraser.badge.xmark.fill") {
         Task {
-          _ = await activity.run("sudo port uninstall inactive", name: "inactive") { out in
-            try await PortClient().uninstallInactive(onOutput: out)
-          }
+          await actions.removeAllInactive()
           inactiveSelection = nil
-          await model.load()
         }
       }
       .disabled(activity.isRunning || model.ports.allSatisfy(\.isActive))
@@ -521,20 +551,14 @@ struct ContentView: View {
   private var detailPane: some View {
     Group {
       if currentMode == .available, let name = searchSelection {
-        PortDetailView(
-          name: name,
-          isInstalled: model.names.contains(name),
-          onInstalled: { await model.load() },
-          onUninstalled: { await model.load() },
-          onOpenPort: openPort)
+        PortDetailView(name: name, isInstalled: model.names.contains(name), onOpenPort: openPort)
       } else if currentMode == .outdated,
         let port = outdatedModel.ports.first(where: { $0.id == outdatedSelection })
       {
         PortDetailView(
           name: port.name,
           subtitle: "\(port.installedVersion) → \(port.availableVersion)",
-          onUpgrade: { await refreshAll() },
-          onUninstalled: { await refreshAll() },
+          canUpgrade: true,
           onOpenPort: openPort)
       } else if currentMode == .inactive,
         let port = model.ports.first(where: { $0.id == inactiveSelection })
@@ -551,7 +575,6 @@ struct ContentView: View {
         PortDetailView(
           name: port.name,
           subtitle: "\(port.version)_\(port.revision)" + (port.isActive ? "" : " (inactive)"),
-          onUninstalled: { await model.load() },
           onOpenPort: openPort)
       } else if currentMode == .selections,
         let group = selectionsModel.groups.first(where: { $0.id == groupSelection })

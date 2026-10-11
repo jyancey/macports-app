@@ -169,18 +169,11 @@ struct PortDetailView: View {
   var subtitle: String?
   /// When false, an Install button is offered.
   var isInstalled = true
-  /// Called after a successful install so the caller can refresh its lists.
-  var onInstalled: () async -> Void = {}
-  /// When set, an Upgrade button is offered and this runs after a successful upgrade.
-  var onUpgrade: (() async -> Void)?
-  /// Called after a successful uninstall.
-  var onUninstalled: () async -> Void = {}
-  @State private var confirmUninstall = false
-  @State private var checkingVariants = false
-  @State private var showInstallOptions = false
+  /// Offers an Upgrade button (for an installed port with a newer version).
+  var canUpgrade = false
   /// Called when the user clicks a dependency name to jump to that port.
   var onOpenPort: (String) -> Void = { _ in }
-  @Environment(ActivityLog.self) private var activity
+  @Environment(PortActions.self) private var actions
   @Environment(PortDetailCache.self) private var detailCache
   @State private var model = PortDetailModel()
   /// The port whose dependency tree is expanded; showing another port collapses it.
@@ -215,9 +208,6 @@ struct PortDetailView: View {
     .task(id: expandedTree == name ? name : nil) {
       if expandedTree == name { await model.loadTree(name, cache: detailCache) }
     }
-    .sheet(isPresented: $showInstallOptions) {
-      InstallOptionsView(name: name) { install(flags: $0) }
-    }
   }
 
   private var header: some View {
@@ -236,22 +226,8 @@ struct PortDetailView: View {
         binaryBadge
       }
       Spacer()
-      if isInstalled, let onUpgrade { upgradeControls(onUpgrade) }
+      if isInstalled, canUpgrade { upgradeControls }
       if isInstalled { uninstallControls } else { installControls }
-    }
-    .confirmationDialog("Uninstall \(name)?", isPresented: $confirmUninstall) {
-      Button("Uninstall", role: .destructive) {
-        Task {
-          let client = PortClient()
-          let ok = await activity.run("sudo port uninstall \(name)", name: name) { out in
-            try await client.uninstall(name, onOutput: out)
-          }
-          if ok { await onUninstalled() }
-        }
-      }
-    } message: {
-      Text(
-        "This removes the port from your system. macOS administrator authorization will be requested.")
     }
   }
 
@@ -270,65 +246,40 @@ struct PortDetailView: View {
     }
   }
 
-  @ViewBuilder private func upgradeControls(_ done: @escaping () async -> Void) -> some View {
-    if activity.runningName != name {
+  @ViewBuilder private var upgradeControls: some View {
+    if !actions.isWorking(on: name) {
       Button("Upgrade", systemImage: "desktopcomputer.and.arrow.down") {
-        Task {
-          let client = PortClient()
-          let ok = await activity.run("sudo port upgrade \(name)", name: name) { out in
-            try await client.upgrade(name, onOutput: out)
-          }
-          if ok { await done() }
-        }
+        Task { await actions.upgrade(name) }
       }
       .buttonStyle(.borderedProminent)
-      .disabled(activity.isRunning)
+      .disabled(!actions.canStart(name))
     }
   }
 
   @ViewBuilder private var uninstallControls: some View {
-    if activity.runningName == name {
+    if actions.isWorking(on: name) {
       HStack(spacing: 6) {
         ProgressView().controlSize(.small)
         Text("Working…").foregroundStyle(.secondary)
       }
     } else {
-      Button("Uninstall", systemImage: "trash", role: .destructive) { confirmUninstall = true }
-        .disabled(activity.isRunning)
+      Button("Uninstall", systemImage: "trash", role: .destructive) {
+        actions.requestUninstall(name)
+      }
+      .disabled(!actions.canStart(name))
     }
   }
 
   @ViewBuilder private var installControls: some View {
-    if activity.runningName == name {
+    if actions.isWorking(on: name) {
       HStack(spacing: 6) {
         ProgressView().controlSize(.small)
         Text("Installing…").foregroundStyle(.secondary)
       }
     } else {
-      Button("Install", systemImage: "arrow.down.circle") { startInstall() }
+      Button("Install", systemImage: "arrow.down.circle") { Task { await actions.install(name) } }
         .buttonStyle(.borderedProminent)
-        .disabled(activity.isRunning || checkingVariants)
-    }
-  }
-
-  /// Installs straight away when the port has no variants; otherwise asks which to use.
-  private func startInstall() {
-    checkingVariants = true
-    Task {
-      let found = try? await PortClient().variants(of: name)
-      checkingVariants = false
-      if let found, found.isEmpty { install(flags: []) } else { showInstallOptions = true }
-    }
-  }
-
-  private func install(flags: [String]) {
-    Task {
-      let client = PortClient()
-      let title = (["sudo port install", name] + flags).joined(separator: " ")
-      let ok = await activity.run(title, name: name) { out in
-        try await client.install(name, variantFlags: flags, onOutput: out)
-      }
-      if ok { await onInstalled() }
+        .disabled(!actions.canStart(name))
     }
   }
 
