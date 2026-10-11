@@ -26,6 +26,13 @@ import Testing
     #expect(port?.variants == ["stdlib_flag", "clang18"])
   }
 
+  @Test func identifiesEachInstalledVersion() {
+    let ports = PortListParser.parseInstalled(
+      "  gcc15 @15.2.0_0+stdlib_flag+clang18 (active)\n  gcc15 @15.1.0_1\n  db48 @4.8.30_5\n")
+    #expect(
+      ports.map(\.id) == ["gcc15@15.2.0_0+stdlib_flag+clang18", "gcc15@15.1.0_1", "db48@4.8.30_5"])
+  }
+
   @Test func ignoresHeadersAndBlankLines() {
     let out = "The following ports are currently installed:\n\n  a @1_0 (active)\n"
     #expect(PortListParser.parseInstalled(out).map(\.name) == ["a"])
