@@ -439,42 +439,6 @@ struct ContentView: View {
         Button("Refresh", systemImage: "arrow.clockwise") { Task { await refreshAll() } }
           .disabled(model.isLoading || outdatedModel.isLoading)
       }
-      if currentMode != .configuration {
-        ToolbarItem(placement: .primaryAction) {
-        HStack(spacing: 8) {
-          TextField(searchPrompt, text: $search)
-            .textFieldStyle(.roundedBorder)
-            .frame(width: 220)
-            .disabled(!searchIsEnabled)
-            .onSubmit {
-              guard currentMode == .available else { return }
-              searchModel.search(search, scope: scope)
-            }
-          Menu {
-            ForEach(SearchScope.allCases) { searchScope in
-              Button {
-                scope = searchScope
-              } label: {
-                if scope == searchScope {
-                  Label(searchScope.rawValue, systemImage: "checkmark")
-                } else {
-                  Text(searchScope.rawValue)
-                }
-              }
-            }
-          } label: {
-            Label(scope.rawValue, systemImage: "line.3.horizontal.decrease.circle")
-          }
-          .menuStyle(.borderedButton)
-          .disabled(currentMode != .available)
-          .help(
-            currentMode == .available
-              ? "Choose how to search available ports"
-              : "Search scopes are available when searching available ports"
-          )
-        }
-      }
-      }
     }
   }
 
@@ -483,19 +447,27 @@ struct ContentView: View {
       switch currentMode {
       case .installed:
         InstalledListView(
-          model: model, filter: search, sortOrder: $sortOrder, selection: $selection)
+          model: model, filter: search, sortOrder: $sortOrder, selection: $selection
+        )
+        .searchable(text: $search, placement: .toolbar, prompt: Text(searchPrompt))
       case .available:
         SearchResultsView(
           searchModel: searchModel, installed: model, activity: activity,
-          prebuiltOnly: prebuiltOnly,
-          selection: $searchSelection)
+          prebuiltOnly: prebuiltOnly, scope: $scope,
+          selection: $searchSelection
+        )
+        .searchable(text: $search, placement: .toolbar, prompt: Text(searchPrompt))
       case .outdated:
         OutdatedListView(
           model: outdatedModel, filter: search, prebuiltOnly: prebuiltOnly,
-          selection: $outdatedSelection)
+          selection: $outdatedSelection
+        )
+        .searchable(text: $search, placement: .toolbar, prompt: Text(searchPrompt))
       case .inactive:
         InactiveListView(
-          model: model, filter: search, sortOrder: $sortOrder, selection: $inactiveSelection)
+          model: model, filter: search, sortOrder: $sortOrder, selection: $inactiveSelection
+        )
+        .searchable(text: $search, placement: .toolbar, prompt: Text(searchPrompt))
       case .selections:
         SelectionsListView(model: selectionsModel, selection: $groupSelection)
       case .health:
@@ -507,15 +479,7 @@ struct ContentView: View {
       case .configuration:
         VStack(spacing: 0) {
           PaneHeader(title: "Configuration", subtitle: "Settings")
-          ConfigurationView(
-            search: $search,
-            scope: $scope,
-            model: configurationModel,
-            installedCount: model.ports.count,
-            onSearch: {
-              guard currentMode == .available else { return }
-              searchModel.search(search, scope: scope)
-            })
+          ConfigurationView(model: configurationModel, installedCount: model.ports.count)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
       }

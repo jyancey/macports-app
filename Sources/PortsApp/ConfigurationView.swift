@@ -48,9 +48,6 @@ final class ConfigurationModel {
 
 /// App preferences and facts about the local MacPorts installation.
 struct ConfigurationView: View {
-  @Binding private var search: String
-  @Binding private var scope: SearchScope
-  private let onSearch: () -> Void
   /// From the Installed list, so showing this tab doesn't run `port installed`.
   private let installedCount: Int
   @AppStorage(PortClient.verboseDefaultsKey) private var verbose = false
@@ -65,15 +62,9 @@ struct ConfigurationView: View {
   private var info: MacPortsInfo? { model.info }
   private var failure: String? { model.failure }
 
-  init(
-    search: Binding<String>, scope: Binding<SearchScope>, model: ConfigurationModel,
-    installedCount: Int, onSearch: @escaping () -> Void
-  ) {
+  init(model: ConfigurationModel, installedCount: Int) {
     self.model = model
-    _search = search
-    _scope = scope
     self.installedCount = installedCount
-    self.onSearch = onSearch
   }
 
   var body: some View {
@@ -177,32 +168,6 @@ struct ConfigurationView: View {
         }
         .help("Refresh the ports tree without upgrading MacPorts")
         .disabled(activity.isRunning)
-      }
-      ToolbarItem(placement: .primaryAction) {
-        HStack(spacing: 8) {
-          TextField("Search", text: $search)
-            .textFieldStyle(.roundedBorder)
-            .frame(width: 220)
-            .disabled(true)
-            .onSubmit(onSearch)
-          Menu {
-            ForEach(SearchScope.allCases) { searchScope in
-              Button {
-                scope = searchScope
-              } label: {
-                if scope == searchScope {
-                  Label(searchScope.rawValue, systemImage: "checkmark")
-                } else {
-                  Text(searchScope.rawValue)
-                }
-              }
-            }
-          } label: {
-            Label(scope.rawValue, systemImage: "line.3.horizontal.decrease.circle")
-          }
-          .menuStyle(.borderedButton)
-          .disabled(true)
-        }
       }
     }
   }

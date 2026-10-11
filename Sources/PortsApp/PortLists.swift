@@ -5,23 +5,34 @@ import SwiftUI
 // changes (rather than with everything ContentView reads), and computes its
 // filtered rows once per redraw.
 
-/// Title and count above a tab's content.
-struct PaneHeader: View {
+/// Title and count above a tab's content, with optional controls on the right.
+struct PaneHeader<Accessory: View>: View {
   let title: String
   let subtitle: String
+  @ViewBuilder var accessory: Accessory
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 2) {
-      Text(title)
-        .font(.title2.weight(.semibold))
-      Text(subtitle)
-        .font(.subheadline)
-        .foregroundStyle(.secondary)
+    HStack(alignment: .bottom) {
+      VStack(alignment: .leading, spacing: 2) {
+        Text(title)
+          .font(.title2.weight(.semibold))
+        Text(subtitle)
+          .font(.subheadline)
+          .foregroundStyle(.secondary)
+      }
+      Spacer()
+      accessory
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .padding(.horizontal, 16)
     .padding(.vertical, 10)
     .background(.bar)
+  }
+}
+
+extension PaneHeader where Accessory == EmptyView {
+  init(title: String, subtitle: String) {
+    self.init(title: title, subtitle: subtitle) { EmptyView() }
   }
 }
 
@@ -112,11 +123,20 @@ struct SearchResultsView: View {
   /// Observable object of type ActivityLog found").
   let activity: ActivityLog
   let prebuiltOnly: Bool
+  /// How the search term is matched; changing it reruns the search.
+  @Binding var scope: SearchScope
   @Binding var selection: String?
 
   var body: some View {
     VStack(spacing: 0) {
-      PaneHeader(title: "Available Ports", subtitle: "\(searchModel.results.count) results")
+      PaneHeader(title: "Available Ports", subtitle: "\(searchModel.results.count) results") {
+        Picker("Match", selection: $scope) {
+          ForEach(SearchScope.allCases) { Text($0.rawValue).tag($0) }
+        }
+        .pickerStyle(.menu)
+        .fixedSize()
+        .help("Choose how the search term is matched against available ports")
+      }
       content
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
