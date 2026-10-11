@@ -102,7 +102,7 @@ struct InactiveListView: View {
   let actions: PortActions
   let filter: String
   @Binding var sortOrder: [KeyPathComparator<InstalledPort>]
-  @Binding var selection: InstalledPort.ID?
+  @Binding var selection: Set<InstalledPort.ID>
 
   var body: some View {
     let rows = model.ports.filter { !$0.isActive }.matching(filter).sorted(using: sortOrder)
@@ -122,11 +122,19 @@ struct InactiveListView: View {
             }
           }
           .contextMenu(forSelectionType: InstalledPort.ID.self) { ids in
-            if ids.count == 1, let port = model.ports.first(where: { ids.contains($0.id) }) {
+            let ports = rows.filter { ids.contains($0.id) }
+            if ports.count == 1, let port = ports.first {
               PortMenus.installedItems(port, update: nil, actions: actions)
+            } else if ports.count > 1 {
+              PortMenus.copyNamesItem(ports.map(\.name))
+              Divider()
+              Button("Remove \(ports.count) Versions", role: .destructive) {
+                Task { await actions.remove(ports) }
+              }
+              .disabled(actions.activity.isRunning)
             }
           }
-          .copyable(model.ports.filter { $0.id == selection }.map(\.name))
+          .copyable(rows.filter { selection.contains($0.id) }.map(\.name))
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -277,7 +285,7 @@ struct OutdatedListView: View {
   let actions: PortActions
   let filter: String
   let prebuiltOnly: Bool
-  @Binding var selection: String?
+  @Binding var selection: Set<OutdatedPort.ID>
 
   var body: some View {
     VStack(spacing: 0) {
@@ -314,15 +322,21 @@ struct OutdatedListView: View {
         }
         .width(min: 70, ideal: 80, max: 100)
       }
-      .contextMenu(forSelectionType: String.self) { names in
+      .contextMenu(forSelectionType: OutdatedPort.ID.self) { ids in
+        let names = rows.filter { ids.contains($0.id) }.map(\.name)
         if names.count == 1, let name = names.first {
           PortMenus.copyItems(name: name, installCommand: nil)
           Divider()
           Button("Upgrade") { Task { await actions.upgrade(name) } }
             .disabled(!actions.canStart(name))
+        } else if names.count > 1 {
+          PortMenus.copyNamesItem(names)
+          Divider()
+          Button("Upgrade \(names.count) Ports") { Task { await actions.upgrade(names) } }
+            .disabled(actions.activity.isRunning)
         }
       }
-      .copyable(selection.map { [$0] } ?? [])
+      .copyable(rows.filter { selection.contains($0.id) }.map(\.name))
     }
   }
 }

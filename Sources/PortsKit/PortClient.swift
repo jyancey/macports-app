@@ -161,7 +161,20 @@ public struct PortClient: Sendable {
     _ name: String,
     onOutput: @escaping @MainActor @Sendable (String) -> Void
   ) async throws {
-    try await runStreaming(action: "upgrade", name: name, onOutput: onOutput)
+    try await upgrade([name], onOutput: onOutput)
+  }
+
+  /// Upgrades several ports in one command (one authorization prompt).
+  public func upgrade(
+    _ names: [String],
+    onOutput: @escaping @MainActor @Sendable (String) -> Void
+  ) async throws {
+    guard !names.isEmpty else { return }
+    for name in names where !PortClient.isValidPortName(name) {
+      throw PortClientError.invalidName(name)
+    }
+    try await runStreaming(
+      action: "upgrade", arguments: names.joined(separator: " "), onOutput: onOutput)
   }
 
   /// Upgrades every outdated port.
@@ -175,7 +188,18 @@ public struct PortClient: Sendable {
     _ port: InstalledPort,
     onOutput: @escaping @MainActor @Sendable (String) -> Void
   ) async throws {
-    try await runStreaming(action: "uninstall", port: port, onOutput: onOutput)
+    try await uninstall([port], onOutput: onOutput)
+  }
+
+  /// Uninstalls several specific installed versions in one command (one
+  /// authorization prompt).
+  public func uninstall(
+    _ ports: [InstalledPort],
+    onOutput: @escaping @MainActor @Sendable (String) -> Void
+  ) async throws {
+    guard !ports.isEmpty else { return }
+    try await runStreaming(
+      action: "uninstall", arguments: try PortClient.versionArguments(ports), onOutput: onOutput)
   }
 
   /// Activates one specific installed version of a port. `port` deactivates

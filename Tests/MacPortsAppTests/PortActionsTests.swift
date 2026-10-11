@@ -29,9 +29,9 @@ actor FakePortCommands: PortCommandRunner {
     try record((["install", name] + variantFlags).joined(separator: " "))
   }
 
-  func upgrade(_ name: String, onOutput: @escaping @MainActor @Sendable (String) -> Void)
+  func upgrade(_ names: [String], onOutput: @escaping @MainActor @Sendable (String) -> Void)
     async throws
-  { try record("upgrade \(name)") }
+  { try record("upgrade " + names.joined(separator: " ")) }
 
   func upgradeAll(onOutput: @escaping @MainActor @Sendable (String) -> Void) async throws {
     try record("upgrade outdated")
@@ -41,9 +41,11 @@ actor FakePortCommands: PortCommandRunner {
     async throws
   { try record("uninstall \(name)") }
 
-  func uninstall(_ port: InstalledPort, onOutput: @escaping @MainActor @Sendable (String) -> Void)
-    async throws
-  { try record("uninstall \(port.name) \(port.versionSpec)") }
+  func uninstall(
+    _ ports: [InstalledPort], onOutput: @escaping @MainActor @Sendable (String) -> Void
+  ) async throws {
+    try record("uninstall " + ports.map { "\($0.name) \($0.versionSpec)" }.joined(separator: " "))
+  }
 
   func uninstallInactive(onOutput: @escaping @MainActor @Sendable (String) -> Void) async throws {
     try record("uninstall inactive")
@@ -131,6 +133,41 @@ actor FakePortCommands: PortCommandRunner {
     #expect(reloads.count == 1)
   }
 
+  @Test func batchesRunAsOneCommand() async {
+    let actions = makeActions()
+    await actions.upgrade(["zlib", "xz"])
+    let old = [
+      InstalledPort(name: "zlib", version: "1.2", revision: 0, variants: [], isActive: false),
+      InstalledPort(name: "xz", version: "5.2", revision: 1, variants: [], isActive: false),
+    ]
+    await actions.remove(old)
+    #expect(await runner.calls == ["upgrade zlib xz", "uninstall zlib @1.2_0 xz @5.2_1"])
+    #expect(reloads.count == 2)
+    #expect(log.chunks.joined().contains("$ sudo port upgrade zlib xz\n"))
+  }
+
+  @Test func emptyBatchesDoNothing() async {
+    let actions = makeActions()
+    await actions.upgrade([String]())
+    await actions.remove([InstalledPort]())
+    #expect(await runner.calls.isEmpty)
+    #expect(reloads.count == 0)
+  }
+
+  @Test func eachPortInABatchShowsAsWorking() async throws {
+    let actions = makeActions()
+    let gates = Gates()
+    let gated = PortActions(activity: log, runner: GatedUpgrades(gates: gates)) {}
+    let upgrade = Task { await gated.upgrade(["zlib", "xz"]) }
+    #expect(try await gates.waitForCall("upgrade"))
+    #expect(gated.isWorking(on: "zlib") && gated.isWorking(on: "xz"))
+    #expect(!gated.isWorking(on: "git"))
+    #expect(!actions.isWorking(on: "zlib"))
+    await gates.open("upgrade")
+    await upgrade.value
+    #expect(!gated.isWorking(on: "zlib"))
+  }
+
   @Test func nothingStartsWhileACommandIsRunning() async throws {
     let actions = makeActions()
     let gates = Gates()
@@ -147,4 +184,33 @@ actor FakePortCommands: PortCommandRunner {
     await gates.open("busy")
     await busy.value
   }
+}
+
+/// Holds every upgrade until the gate "upgrade" opens.
+struct GatedUpgrades: PortCommandRunner {
+  let gates: Gates
+  func variants(of name: String) async throws -> [PortVariant] { [] }
+  func install(
+    _ name: String, variantFlags: [String],
+    onOutput: @escaping @MainActor @Sendable (String) -> Void
+  ) async throws {}
+  func upgrade(_ names: [String], onOutput: @escaping @MainActor @Sendable (String) -> Void)
+    async throws
+  { try await gates.pass("upgrade") }
+  func upgradeAll(onOutput: @escaping @MainActor @Sendable (String) -> Void) async throws {}
+  func uninstall(_ name: String, onOutput: @escaping @MainActor @Sendable (String) -> Void)
+    async throws
+  {}
+  func uninstall(
+    _ ports: [InstalledPort], onOutput: @escaping @MainActor @Sendable (String) -> Void
+  ) async throws {}
+  func uninstallInactive(onOutput: @escaping @MainActor @Sendable (String) -> Void) async throws {}
+  func activate(_ port: InstalledPort, onOutput: @escaping @MainActor @Sendable (String) -> Void)
+    async throws
+  {}
+}
+
+@Test func batchSummaryListsTheFirstItemsAndCountsTheRest() {
+  #expect(BatchSelectionView.summary(["a", "b"], limit: 3) == "a\nb")
+  #expect(BatchSelectionView.summary(["a", "b", "c", "d", "e"], limit: 3) == "a\nb\nc\nand 2 more")
 }

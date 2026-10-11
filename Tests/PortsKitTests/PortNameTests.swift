@@ -55,3 +55,17 @@ struct PortNameTests {
   #expect(throws: PortClientError.self) { try PortClient.versionArguments([badName]) }
   #expect(throws: PortClientError.self) { try PortClient.versionArguments([badVersion]) }
 }
+
+@Test func batchUpgradeRejectsInvalidNamesBeforeRunning() async throws {
+  // A missing `port`, so anything that got as far as running would fail with
+  // `.notInstalled` instead.
+  let client = PortClient(executablePath: "/nonexistent/port", verbose: false)
+  do {
+    try await client.upgrade(["zlib", "a;rm"]) { _ in }
+    Issue.record("expected the invalid name to be rejected")
+  } catch PortClientError.invalidName(let name) {
+    #expect(name == "a;rm")
+  }
+  // Nothing to upgrade, so nothing runs.
+  try await client.upgrade([String]()) { _ in }
+}

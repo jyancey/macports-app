@@ -31,6 +31,11 @@ enum PortMenus {
     }
   }
 
+  /// Copies several names, one per line.
+  static func copyNamesItem(_ names: [String]) -> some View {
+    Button("Copy Names") { Pasteboard.copy(names.joined(separator: "\n")) }
+  }
+
   /// Items for one installed version: copy, then Upgrade/Uninstall for the
   /// active version or Activate/Remove for an inactive one.
   @ViewBuilder
@@ -57,5 +62,37 @@ enum PortMenus {
       .disabled(!actions.canStart(port.name))
     Button("Remove This Version", role: .destructive) { Task { await actions.remove(port) } }
       .disabled(!actions.canStart(port.name))
+  }
+}
+
+/// The detail pane when several rows are selected: what they are, and one
+/// action for all of them.
+struct BatchSelectionView: View {
+  let title: String
+  let systemImage: String
+  let items: [String]
+  let actionTitle: String
+  let actionImage: String
+  var role: ButtonRole?
+  let isDisabled: Bool
+  let action: () -> Void
+
+  var body: some View {
+    ContentUnavailableView {
+      Label(title, systemImage: systemImage)
+    } description: {
+      Text(Self.summary(items))
+    } actions: {
+      Button(actionTitle, systemImage: actionImage, role: role, action: action)
+        .buttonStyle(.borderedProminent)
+        .disabled(isDisabled)
+    }
+  }
+
+  /// One item per line, up to `limit`, then how many more there are.
+  static func summary(_ items: [String], limit: Int = 12) -> String {
+    let shown = items.prefix(limit).joined(separator: "\n")
+    let rest = items.count - limit
+    return rest > 0 ? shown + "\nand \(rest) more" : shown
   }
 }

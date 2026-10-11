@@ -256,8 +256,8 @@ struct ContentView: View {
   @State private var model: InstalledPortsModel
   @State private var searchModel = SearchModel()
   @State private var outdatedModel: OutdatedModel
-  @State private var outdatedSelection: String?
-  @State private var inactiveSelection: InstalledPort.ID?
+  @State private var outdatedSelection: Set<OutdatedPort.ID> = []
+  @State private var inactiveSelection: Set<InstalledPort.ID> = []
   @State private var selectionsModel = SelectionsModel()
   @State private var healthModel = HealthModel()
   @State private var configurationModel = ConfigurationModel()
@@ -403,6 +403,25 @@ struct ContentView: View {
     await ports
   }
 
+  /// Selected rows of the Outdated table, in table order.
+  private var selectedOutdated: [OutdatedPort] {
+    outdatedModel.ports.filter { outdatedSelection.contains($0.id) }
+  }
+
+  /// Selected rows of the Inactive table, in table order.
+  private var selectedInactive: [InstalledPort] {
+    model.ports.filter { !$0.isActive && inactiveSelection.contains($0.id) }
+  }
+
+  private var upgradeSelectedButton: some View {
+    Button("Upgrade Selected", systemImage: "arrow.up.circle") {
+      let names = selectedOutdated.map(\.name)
+      Task { await actions.upgrade(names) }
+    }
+    .disabled(activity.isRunning || selectedOutdated.isEmpty)
+    .help("Upgrade the selected ports")
+  }
+
   private var upgradeAllButton: some View {
     Button("Upgrade All", systemImage: "desktopcomputer.and.arrow.down") {
       Task { await actions.upgradeAll() }
@@ -414,18 +433,18 @@ struct ContentView: View {
   private var removeInactiveButtons: some View {
     Group {
       Button("Remove Selected", systemImage: "eraser.badge.xmark") {
-        guard let port = model.ports.first(where: { $0.id == inactiveSelection }) else { return }
+        let ports = selectedInactive
         Task {
-          await actions.remove(port)
-          inactiveSelection = nil
+          await actions.remove(ports)
+          inactiveSelection = []
         }
       }
-      .disabled(activity.isRunning || inactiveSelection == nil)
-      .help("Remove the selected inactive version")
+      .disabled(activity.isRunning || selectedInactive.isEmpty)
+      .help("Remove the selected inactive versions")
       Button("Remove All", systemImage: "eraser.badge.xmark.fill") {
         Task {
           await actions.removeAllInactive()
-          inactiveSelection = nil
+          inactiveSelection = []
         }
       }
       .disabled(activity.isRunning || model.ports.allSatisfy(\.isActive))
@@ -512,6 +531,7 @@ struct ContentView: View {
           Toggle("Pre-built only", systemImage: "checkmark.seal", isOn: $prebuiltOnly)
             .help("Show only updates that have a pre-built binary for this Mac")
         }
+        ToolbarItem { upgradeSelectedButton }
         ToolbarItem { upgradeAllButton }
       }
       if currentMode == .inactive { ToolbarItemGroup { removeInactiveButtons } }
@@ -587,20 +607,43 @@ struct ContentView: View {
     Group {
       if currentMode == .available, let name = searchSelection {
         PortDetailView(name: name, isInstalled: model.names.contains(name), onOpenPort: openPort)
-      } else if currentMode == .outdated,
-        let port = outdatedModel.ports.first(where: { $0.id == outdatedSelection })
-      {
-        PortDetailView(
-          name: port.name,
-          subtitle: "\(port.installedVersion) → \(port.availableVersion)",
-          canUpgrade: true,
-          onOpenPort: openPort)
-      } else if currentMode == .inactive,
-        let port = model.ports.first(where: { $0.id == inactiveSelection })
-      {
-        PortDetailView(
-          name: port.name, subtitle: inactiveSubtitle(port), inactiveVersion: port,
-          onOpenPort: openPort)
+      } else if currentMode == .outdated, !selectedOutdated.isEmpty {
+        let ports = selectedOutdated
+        if ports.count == 1, let port = ports.first {
+          PortDetailView(
+            name: port.name,
+            subtitle: "\(port.installedVersion) → \(port.availableVersion)",
+            canUpgrade: true,
+            onOpenPort: openPort)
+        } else {
+          BatchSelectionView(
+            title: "\(ports.count) Ports Selected", systemImage: "arrow.triangle.2.circlepath",
+            items: ports.map { "\($0.name) \($0.installedVersion) → \($0.availableVersion)" },
+            actionTitle: "Upgrade \(ports.count) Ports",
+            actionImage: "desktopcomputer.and.arrow.down", isDisabled: activity.isRunning
+          ) {
+            Task { await actions.upgrade(ports.map(\.name)) }
+          }
+        }
+      } else if currentMode == .inactive, !selectedInactive.isEmpty {
+        let ports = selectedInactive
+        if ports.count == 1, let port = ports.first {
+          PortDetailView(
+            name: port.name, subtitle: inactiveSubtitle(port), inactiveVersion: port,
+            onOpenPort: openPort)
+        } else {
+          BatchSelectionView(
+            title: "\(ports.count) Inactive Versions Selected", systemImage: "archivebox",
+            items: ports.map { "\($0.name) \($0.version)_\($0.revision)" },
+            actionTitle: "Remove \(ports.count) Versions", actionImage: "trash",
+            role: .destructive, isDisabled: activity.isRunning
+          ) {
+            Task {
+              await actions.remove(ports)
+              inactiveSelection = []
+            }
+          }
+        }
       } else if currentMode == .installed, let port = selectedPort {
         if port.isActive {
           let update = outdatedModel.update(for: port)
