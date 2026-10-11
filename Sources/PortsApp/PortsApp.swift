@@ -12,9 +12,9 @@ enum AppInfo {
   static let name = "MacPortsApp"
   // Fallback used when run unbundled (`swift run`); packaged builds read Info.plist.
   static let version =
-    Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.2.0"
+    Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.3.0"
   static let build =
-    Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0.2.0"
+    Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0.3.0"
   static let author = "John Yancey"
   static let copyright = "© 2026 John Yancey"
 }
@@ -27,11 +27,12 @@ struct MacPortsApp: App {
 
   var body: some Scene {
     WindowGroup {
-      ContentView()
+      ContentView(activity: activity)
         .environment(activity)
         .frame(minWidth: 900, minHeight: 500)
     }
     .commands {
+      AppCommands(activity: activity)
       CommandGroup(replacing: .appInfo) {
         Button("About \(AppInfo.name)") { showAbout() }
       }

@@ -4,7 +4,7 @@ import SwiftUI
 /// Shows one `port select` group and lets the user pick or unset its version.
 struct SelectionDetailView: View {
   let group: PortSelectGroup
-  let onChanged: () async -> Void
+  let model: SelectionsModel
   @Environment(ActivityLog.self) private var activity
 
   var body: some View {
@@ -14,13 +14,13 @@ struct SelectionDetailView: View {
       } header: {
         Text(group.name).font(.title2.bold())
       }
-      Section("Choose a version") {
+      Section {
         ForEach(group.options.filter { $0 != "none" }, id: \.self) { option in
           HStack {
             Text(option)
             Spacer()
             if option == group.selected {
-              Label("Selected", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+              StatusLabel("Selected", systemImage: "checkmark.circle.fill", color: .green)
             } else {
               Button("Select") { apply(option) }.disabled(activity.isRunning)
             }
@@ -30,23 +30,18 @@ struct SelectionDetailView: View {
           Button("Unset", systemImage: "xmark.circle") { apply("none") }
             .disabled(activity.isRunning)
         }
+      } header: {
+        Text("Choose a version")
+      } footer: {
+        Text(
+          "Selecting a version points the shared commands (such as \(group.name)) at it. "
+            + "Changing it uses macOS administrator authorization.")
       }
-      Text(
-        "Selecting a version points the shared commands (such as \(group.name)) at it. "
-          + "Changing it uses macOS administrator authorization."
-      )
-      .font(.caption).foregroundStyle(.secondary)
     }
     .formStyle(.grouped)
   }
 
   private func apply(_ option: String) {
-    Task {
-      await activity.run("sudo port select --set \(group.name) \(option)", name: group.name) {
-        out in
-        try await PortClient().setSelection(group: group.name, option: option, onOutput: out)
-      }
-      await onChanged()
-    }
+    Task { await model.select(option, in: group, activity: activity) }
   }
 }

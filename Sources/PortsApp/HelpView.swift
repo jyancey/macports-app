@@ -8,8 +8,9 @@ struct HelpView: View {
         section(
           "Browsing",
           [
-            "Installed, Outdated and Inactive list what is on your system; Available searches the whole ports tree (press Return to search).",
-            "Select a port to see its details, variants and dependencies.",
+            "Installed, Outdated and Inactive list what is on your system; Available searches the whole ports tree (press Return to search). The search field filters the other lists as you type.",
+            "Select a port to see its details, variants and dependencies. Drag the divider between the list and the details to resize them.",
+            "Right-click a port for Copy Name, Copy Install Command and the actions for that tab. ⌘C copies the selected port names.",
             "Click a dependency or a \"Required by\" name to jump to that port.",
             "Expand \"Full dependency tree\" to see everything a port needs, recursively.",
           ])
@@ -27,19 +28,29 @@ struct HelpView: View {
         section(
           "Selections",
           [
-            "The Selections tab lists `port select` groups (clang, python, gcc…) and which version each uses. Choose a group, then Select a version or Unset it (uses macOS administrator authorization)."
+            "The Selections tab lists `port select` groups (clang, python, gcc…) and which version each uses. Pick a version from the menu in the Selected column, or choose a group to Select a version or Unset it (uses macOS administrator authorization)."
           ])
         section(
           "Upgrading and cleanup",
           [
-            "Outdated lists ports with newer versions (the Pre-built column shows whether the update has a binary for this Mac, and the toolbar toggle filters to those); Upgrade All runs `port upgrade outdated`.",
-            "Inactive lists old versions that can be removed to reclaim space.",
+            "Outdated lists ports with newer versions (the Pre-built column shows whether the update has a binary for this Mac, and the toolbar toggle filters to those); Upgrade All runs `port upgrade outdated`. While an upgrade runs, the Status column shows what each port is doing.",
+            "On Installed, an arrow next to the version marks a port with an update; its detail pane offers Upgrade.",
+            "Inactive lists old versions. Remove one to reclaim space, or Activate it to go back to that version (the active version is deactivated and stays installed).",
+            "On Outdated and Inactive, select several rows (⌘-click or ⇧-click) to upgrade or remove them with one authorization prompt.",
           ])
         section(
           "Activity pane",
           [
             "Shows the output of every port command. Drag the divider to resize it.",
-            "Green dot: ready. Yellow: busy. Red: the last command failed.",
+            "If a command finishes or fails while you are in another app, the Dock icon bounces.",
+            "Stop (⌘.) interrupts the running command and everything it started. A partly built port is kept, so installing it again resumes the build.",
+            "The header shows the running command and how long it has run, or that the last command failed. A failed command always opens the pane, and the toolbar's Activity Log icon pulses while a command runs and turns into a red warning after a failure.",
+          ])
+        section(
+          "Keyboard shortcuts",
+          [
+            "⌘F: search or filter ports (in the Activity log or a file list: find in that text).",
+            "⌘1 to ⌘7: switch tabs. ⌘R: refresh. ⇧⌘L: show or hide the Activity log. ⌃⌘S: show or hide the sidebar.",
           ])
         section(
           "Configuration",

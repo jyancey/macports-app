@@ -87,6 +87,12 @@ public enum PortInfoParser {
     public let id: Int
     public let name: String
     public var children: [DependencyNode]?
+
+    public init(id: Int, name: String, children: [DependencyNode]? = nil) {
+      self.id = id
+      self.name = name
+      self.children = children
+    }
   }
 
   /// Parses `port -q rdeps` (two-space indentation per level) into a forest.
@@ -126,5 +132,43 @@ public enum PortInfoParser {
   /// One port name per line, de-duplicated and sorted.
   public static func parseNames(_ output: String) -> [String] {
     Array(Set(parseDependents(output))).sorted()
+  }
+}
+
+/// The `port` queries behind the port detail pane. `PortClient` runs the real
+/// commands; tests substitute their own.
+public protocol PortDetailSource: Sendable {
+  func info(for name: String) async throws -> PortInfo
+  func contents(of name: String) async throws -> [String]
+  func dependents(of name: String) async throws -> [String]
+  func dependencyTree(of name: String) async throws -> [PortInfoParser.DependencyNode]
+  func variants(of name: String) async throws -> [PortVariant]
+}
+
+extension PortClient: PortDetailSource {}
+
+/// Runs each query with the `port` path configured at that moment, so a path
+/// changed in Configuration applies to views that are already open.
+public struct ConfiguredPortClient: PortDetailSource {
+  public init() {}
+
+  public func info(for name: String) async throws -> PortInfo {
+    try await PortClient().info(for: name)
+  }
+
+  public func contents(of name: String) async throws -> [String] {
+    try await PortClient().contents(of: name)
+  }
+
+  public func dependents(of name: String) async throws -> [String] {
+    try await PortClient().dependents(of: name)
+  }
+
+  public func dependencyTree(of name: String) async throws -> [PortInfoParser.DependencyNode] {
+    try await PortClient().dependencyTree(of: name)
+  }
+
+  public func variants(of name: String) async throws -> [PortVariant] {
+    try await PortClient().variants(of: name)
   }
 }

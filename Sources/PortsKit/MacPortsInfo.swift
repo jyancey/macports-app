@@ -9,8 +9,10 @@ public struct MacPortsInfo: Sendable, Equatable {
   public var applicationsDir: String
   public var sources: [String]
   public var sourcesConfPath: String
-  public var installedCount: Int
   public var lastSync: Date?
+
+  /// The registry database MacPorts keeps in `dataPath`.
+  public var registryPath: String { dataPath + "/registry/registry.db" }
 
   /// Parses `port version` output ("Version: 2.12.6").
   public static func parseVersion(_ output: String) -> String {
@@ -43,6 +45,41 @@ public struct MacPortsInfo: Sendable, Equatable {
       .map { $0.trimmingCharacters(in: .whitespaces) }
       .filter { !$0.isEmpty && !$0.hasPrefix("#") }
       .compactMap { $0.split(separator: " ").first.map(String.init) }
+  }
+}
+
+public struct RegistryStatus: Sendable, Equatable {
+  public enum Integrity: Sendable, Equatable {
+    case valid
+    case invalid(String)
+    case unavailable(String)
+  }
+
+  public let path: String
+  public let exists: Bool
+  public let readable: Bool
+  public let integrity: Integrity
+
+  public init(path: String, exists: Bool, readable: Bool, integrity: Integrity) {
+    self.path = path
+    self.exists = exists
+    self.readable = readable
+    self.integrity = integrity
+  }
+
+  public var isHealthy: Bool {
+    exists && readable && integrity == .valid
+  }
+
+  public static func parseIntegrityOutput(_ output: String, status: Int32) -> Integrity {
+    let lines = output.split(whereSeparator: \.isNewline).map {
+      $0.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    if status == 0, lines.count == 1, lines[0].lowercased() == "ok" {
+      return .valid
+    }
+    let message = lines.joined(separator: "\n")
+    return .invalid(message.isEmpty ? "SQLite integrity check failed." : message)
   }
 }
 
@@ -91,28 +128,105 @@ extension MacPortsInfo {
   }
 }
 
+extension MacPortsInfo {
+  /// Where MacPorts keeps the ports tree for a source (as
+  /// `macports::getsourcepath` does): a `file://` source is used in place, a
+  /// tarball (snapshot) source is unpacked into a `ports` folder named after
+  /// the tarball's directory, and any other URL is mirrored by host and path.
+  public static func sourcePath(for url: String, dataPath: String) -> String {
+    if url.hasPrefix("file://") { return String(url.dropFirst("file://".count)) }
+    let parts = url.split(omittingEmptySubsequences: false) { $0 == ":" || $0 == "/" }
+      .map(String.init)
+    guard parts.count > 3 else { return dataPath + "/sources" }
+    let isSnapshot =
+      ["rsync", "http", "https", "ftp"].contains(parts[0])
+      && [".tar.gz", ".tar.bz2", ".tar"].contains { url.hasSuffix($0) }
+    let components =
+      isSnapshot ? parts[3..<(parts.count - 1)] + ["ports"] : parts[3...] + []
+    return ([dataPath, "sources"] + components.filter { !$0.isEmpty }).joined(separator: "/")
+  }
+
+  /// When any source's PortIndex was last rebuilt, which `port sync` and
+  /// `port selfupdate` do; nil if none is found.
+  static func lastSync(of sources: [String], dataPath: String) -> Date? {
+    sources.compactMap { source in
+      (try? FileManager.default.attributesOfItem(
+        atPath: sourcePath(for: source, dataPath: dataPath) + "/PortIndex"))?[.modificationDate]
+        as? Date
+    }.max()
+  }
+}
+
 extension PortClient {
+  /// Runs `port version` once; everything else is read from the config files.
   public func macPortsInfo() async throws -> MacPortsInfo {
     let version = MacPortsInfo.parseVersion(try await run(["version"]))
-    let prefix = executableURL.deletingLastPathComponent().deletingLastPathComponent().path
-    let confDir = prefix + "/etc/macports"
-    let fm = FileManager.default
-    func read(_ path: String) -> String {
-      (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
-    }
-    let conf = MacPortsInfo.parseConf(read(confDir + "/macports.conf"))
-    let dataPath = conf["portdbpath"] ?? prefix + "/var/macports"
-    let sourcesConf = conf["sources_conf"] ?? confDir + "/sources.conf"
-    let sources = MacPortsInfo.parseSources(read(sourcesConf))
-    let count = PortListParser.parseInstalled(try await run(["-q", "installed"])).count
-    let sync =
-      (try? fm.attributesOfItem(
-        atPath: dataPath + "/sources/rsync.macports.org/macports/release/tarballs/PortIndex"))?[
-        .modificationDate] as? Date
+    let conf = localConf()
+    let sources = MacPortsInfo.parseSources(Self.read(conf.sourcesConfPath))
     return MacPortsInfo(
       version: version, executablePath: executableURL.path,
-      prefix: conf["prefix"] ?? prefix, dataPath: dataPath,
-      applicationsDir: conf["applications_dir"] ?? "/Applications/MacPorts",
-      sources: sources, sourcesConfPath: sourcesConf, installedCount: count, lastSync: sync)
+      prefix: conf.values["prefix"] ?? conf.prefix, dataPath: conf.dataPath,
+      applicationsDir: conf.values["applications_dir"] ?? "/Applications/MacPorts",
+      sources: sources, sourcesConfPath: conf.sourcesConfPath,
+      lastSync: MacPortsInfo.lastSync(of: sources, dataPath: conf.dataPath))
+  }
+
+  /// MacPorts' data directory (`portdbpath`), read from macports.conf
+  /// without running `port`.
+  public func dataPath() -> String { localConf().dataPath }
+
+  /// Checks the registry database in `dataPath()`.
+  public func registryStatus() async -> RegistryStatus {
+    await registryStatus(for: dataPath())
+  }
+
+  private func localConf() -> (
+    values: [String: String], prefix: String, dataPath: String, sourcesConfPath: String
+  ) {
+    let prefix = executableURL.deletingLastPathComponent().deletingLastPathComponent().path
+    let confDir = prefix + "/etc/macports"
+    let values = MacPortsInfo.parseConf(Self.read(confDir + "/macports.conf"))
+    return (
+      values, prefix, values["portdbpath"] ?? prefix + "/var/macports",
+      values["sources_conf"] ?? confDir + "/sources.conf"
+    )
+  }
+
+  private static func read(_ path: String) -> String {
+    (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+  }
+
+  public func registryStatus(for dataPath: String) async -> RegistryStatus {
+    let path = dataPath + "/registry/registry.db"
+    let fm = FileManager.default
+    let exists = fm.fileExists(atPath: path)
+    let readable = exists && fm.isReadableFile(atPath: path)
+    guard exists, readable else {
+      return RegistryStatus(
+        path: path, exists: exists, readable: readable,
+        integrity: .unavailable(
+          exists ? "The registry database is not readable." : "The registry database is missing."))
+    }
+
+    let sqlitePath = "/usr/bin/sqlite3"
+    guard fm.isExecutableFile(atPath: sqlitePath) else {
+      return RegistryStatus(
+        path: path, exists: exists, readable: readable,
+        integrity: .unavailable("The system sqlite3 command is unavailable."))
+    }
+
+    do {
+      let result = try await ChildProcess.run(
+        URL(fileURLWithPath: sqlitePath), arguments: ["-readonly", path, "PRAGMA quick_check;"])
+      let integrity = RegistryStatus.parseIntegrityOutput(
+        String(decoding: result.status == 0 ? result.stdout : result.stderr, as: UTF8.self),
+        status: result.status)
+      return RegistryStatus(
+        path: path, exists: exists, readable: readable, integrity: integrity)
+    } catch {
+      return RegistryStatus(
+        path: path, exists: exists, readable: readable,
+        integrity: .unavailable(error.localizedDescription))
+    }
   }
 }

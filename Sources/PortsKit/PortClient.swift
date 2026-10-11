@@ -161,7 +161,20 @@ public struct PortClient: Sendable {
     _ name: String,
     onOutput: @escaping @MainActor @Sendable (String) -> Void
   ) async throws {
-    try await runStreaming(action: "upgrade", name: name, onOutput: onOutput)
+    try await upgrade([name], onOutput: onOutput)
+  }
+
+  /// Upgrades several ports in one command (one authorization prompt).
+  public func upgrade(
+    _ names: [String],
+    onOutput: @escaping @MainActor @Sendable (String) -> Void
+  ) async throws {
+    guard !names.isEmpty else { return }
+    for name in names where !PortClient.isValidPortName(name) {
+      throw PortClientError.invalidName(name)
+    }
+    try await runStreaming(
+      action: "upgrade", arguments: names.joined(separator: " "), onOutput: onOutput)
   }
 
   /// Upgrades every outdated port.
@@ -175,13 +188,27 @@ public struct PortClient: Sendable {
     _ port: InstalledPort,
     onOutput: @escaping @MainActor @Sendable (String) -> Void
   ) async throws {
-    guard PortClient.isValidPortName(port.name) else {
-      throw PortClientError.invalidName(port.name)
-    }
-    let spec = "@\(port.version)_\(port.revision)" + port.variants.map { "+" + $0 }.joined()
-    guard PortClient.isValidVersionSpec(spec) else { throw PortClientError.invalidName(spec) }
+    try await uninstall([port], onOutput: onOutput)
+  }
+
+  /// Uninstalls several specific installed versions in one command (one
+  /// authorization prompt).
+  public func uninstall(
+    _ ports: [InstalledPort],
+    onOutput: @escaping @MainActor @Sendable (String) -> Void
+  ) async throws {
+    guard !ports.isEmpty else { return }
     try await runStreaming(
-      action: "uninstall", arguments: "\(port.name) \(spec)", onOutput: onOutput)
+      action: "uninstall", arguments: try PortClient.versionArguments(ports), onOutput: onOutput)
+  }
+
+  /// Activates one specific installed version of a port. `port` deactivates
+  /// the version that is active now first; it stays installed.
+  public func activate(
+    _ port: InstalledPort,
+    onOutput: @escaping @MainActor @Sendable (String) -> Void
+  ) async throws {
+    try await runStreaming(action: "activate", port: port, onOutput: onOutput)
   }
 
   /// Uninstalls every inactive version of every port.
@@ -221,16 +248,12 @@ public struct PortClient: Sendable {
       throw PortClientError.invalidName(executableURL.path)
     }
     let command = "sudo \(executableURL.path) reclaim"
-    _ = try await Task.detached {
-      let process = Process()
-      process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-      process.arguments = [
+    _ = try await ChildProcess.run(
+      URL(fileURLWithPath: "/usr/bin/osascript"),
+      arguments: [
         "-e", "tell application \"Terminal\" to activate",
         "-e", "tell application \"Terminal\" to do script \"\(command)\"",
-      ]
-      try process.run()
-      process.waitUntilExit()
-    }.value
+      ])
   }
 
   /// Updates MacPorts itself and syncs the ports tree (`port selfupdate`).
@@ -241,6 +264,28 @@ public struct PortClient: Sendable {
   /// Syncs the ports tree only, without updating MacPorts (`port sync`).
   public func sync(onOutput: @escaping @MainActor @Sendable (String) -> Void) async throws {
     try await runStreaming(action: "sync", arguments: "", onOutput: onOutput)
+  }
+
+  /// Runs `action` on one exact installed version, `name @version_revision+variants`.
+  private func runStreaming(
+    action: String, port: InstalledPort,
+    onOutput: @escaping @MainActor @Sendable (String) -> Void
+  ) async throws {
+    try await runStreaming(
+      action: action, arguments: try PortClient.versionArguments([port]), onOutput: onOutput)
+  }
+
+  /// `name @version_revision+variants` for each port, validated for the shell.
+  static func versionArguments(_ ports: [InstalledPort]) throws -> String {
+    try ports.map { port in
+      guard PortClient.isValidPortName(port.name) else {
+        throw PortClientError.invalidName(port.name)
+      }
+      guard PortClient.isValidVersionSpec(port.versionSpec) else {
+        throw PortClientError.invalidName(port.versionSpec)
+      }
+      return "\(port.name) \(port.versionSpec)"
+    }.joined(separator: " ")
   }
 
   private func runStreaming(
@@ -276,8 +321,13 @@ public struct PortClient: Sendable {
       throw PortClientError.invalidName(log.path)
     }
 
-    let command =
-      "\(executableURL.path) -N \(verbose ? "-v " : "")\(action) \(arguments) > \(log.path) 2>&1"
+    let stopFile = directory.appendingPathComponent("stop")
+    let command = PortClient.stoppableCommand(
+      "\(executableURL.path) -N \(verbose ? "-v " : "")\(action) \(arguments)",
+      log: log.path, stopFile: stopFile.path)
+    let stop = CommandStop.current
+    stop?.register(stopFile)
+    defer { stop?.unregister() }
     let tail = Task.detached { await PortClient.tail(log, onOutput: onOutput) }
     do {
       try await runPrivileged(command)
@@ -288,6 +338,22 @@ public struct PortClient: Sendable {
     }
     tail.cancel()
     await tail.value
+  }
+
+  /// A shell command that runs `command` with its output in `log`, in its own
+  /// process group, and interrupts that whole group (so compilers `port`
+  /// started stop too) once `stopFile` exists; if it is still running five
+  /// seconds later, it is terminated. Exits with `command`'s status.
+  ///
+  /// `set -m` gives the background job its own process group; it also keeps
+  /// the job from ignoring SIGINT, as background jobs otherwise do. All parts
+  /// must already be validated: this is run by a root shell.
+  static func stoppableCommand(_ command: String, log: String, stopFile: String) -> String {
+    let signal = { (name: String) in "kill -\(name) -$p 2>/dev/null || kill -\(name) $p" }
+    return "set -m; \(command) > \(log) 2>&1 & p=$!; "
+      + "(while [ ! -e \(stopFile) ]; do sleep 0.2; done; "
+      + "\(signal("INT")); sleep 5; \(signal("TERM"))) >/dev/null 2>&1 & w=$!; "
+      + "wait $p; s=$?; kill -$w 2>/dev/null || kill $w 2>/dev/null; exit $s"
   }
 
   /// Adds a ports source to sources.conf. The edited file is staged in a
@@ -389,50 +455,27 @@ public struct PortClient: Sendable {
   /// `command` must only contain trusted, validated components.
   func runPrivileged(_ command: String) async throws {
     let script = "do shell script \"\(command)\" with administrator privileges"
-    let url = URL(fileURLWithPath: "/usr/bin/osascript")
-    try await Task.detached {
-      let process = Process()
-      process.executableURL = url
-      process.arguments = ["-e", script]
-      let err = Pipe()
-      process.standardError = err
-      process.standardOutput = FileHandle.nullDevice
-      try process.run()
-      let errData = err.fileHandleForReading.readDataToEndOfFile()
-      process.waitUntilExit()
-      guard process.terminationStatus == 0 else {
-        let message = String(decoding: errData, as: UTF8.self)
-        if message.contains("-128") { throw PortClientError.cancelled }
-        throw PortClientError.commandFailed(status: process.terminationStatus, stderr: message)
-      }
-    }.value
+    // Terminating osascript would not stop the root shell it started, so let it finish.
+    let result = try await ChildProcess.run(
+      URL(fileURLWithPath: "/usr/bin/osascript"), arguments: ["-e", script],
+      terminateOnCancel: false)
+    guard result.status == 0 else {
+      let message = String(decoding: result.stderr, as: UTF8.self)
+      if message.contains("-128") { throw PortClientError.cancelled }
+      throw PortClientError.commandFailed(status: result.status, stderr: message)
+    }
   }
 
+  /// Runs `port` and returns its output. Cancelling the calling task
+  /// terminates the process and throws `CancellationError`.
   func run(_ arguments: [String], mergeStderr: Bool = false) async throws -> String {
     guard isAvailable else { throw PortClientError.notInstalled(executableURL.path) }
-    let url = executableURL
-    return try await Task.detached {
-      let process = Process()
-      process.executableURL = url
-      process.arguments = arguments
-      let out = Pipe()
-      let err = Pipe()
-      process.standardOutput = out
-      process.standardError = mergeStderr ? out : err
-      try process.run()
-      // Unused when stderr is merged; leaving it open would keep the drain below waiting forever.
-      if mergeStderr { try? err.fileHandleForWriting.close() }
-      // Drain stderr concurrently so neither pipe buffer can fill and block the process.
-      async let errData = Task.detached { err.fileHandleForReading.readDataToEndOfFile() }.value
-      let outData = out.fileHandleForReading.readDataToEndOfFile()
-      let errBytes = await errData
-      process.waitUntilExit()
-      guard process.terminationStatus == 0 else {
-        throw PortClientError.commandFailed(
-          status: process.terminationStatus,
-          stderr: String(decoding: errBytes, as: UTF8.self))
-      }
-      return String(decoding: outData, as: UTF8.self)
-    }.value
+    let result = try await ChildProcess.run(
+      executableURL, arguments: arguments, mergeStderr: mergeStderr)
+    guard result.status == 0 else {
+      throw PortClientError.commandFailed(
+        status: result.status, stderr: String(decoding: result.stderr, as: UTF8.self))
+    }
+    return String(decoding: result.stdout, as: UTF8.self)
   }
 }

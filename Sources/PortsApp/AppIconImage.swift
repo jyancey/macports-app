@@ -4,11 +4,15 @@ import SwiftUI
 struct AppIconImage: View {
   var size: CGFloat = 64
 
+  /// Read from disk once; the view is drawn on every redraw of the empty
+  /// detail pane.
+  @MainActor private static let icon: NSImage? = Bundle.module
+    .url(forResource: "AppIcon", withExtension: "png")
+    .flatMap(NSImage.init(contentsOf:))
+
   var body: some View {
     Group {
-      if let url = Bundle.module.url(forResource: "AppIcon", withExtension: "png"),
-        let image = NSImage(contentsOf: url)
-      {
+      if let image = Self.icon {
         Image(nsImage: image).resizable().scaledToFit()
       } else {
         Image(systemName: "shippingbox.fill").resizable().scaledToFit().foregroundStyle(.tint)

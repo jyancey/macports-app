@@ -1,8 +1,55 @@
 import PortsKit
 import SwiftUI
 
+/// MacPorts facts for the Configuration tab. Owned by `ContentView` so they
+/// survive switching tabs; reloaded when stale or after a command.
+@MainActor
+@Observable
+final class ConfigurationModel {
+  private(set) var info: MacPortsInfo?
+  private(set) var failure: String?
+  /// Whether the registry database can be read; checked once per load rather
+  /// than on every redraw.
+  private(set) var registryReadable = false
+
+  typealias Fetch = @Sendable () async throws -> MacPortsInfo
+  private let fetch: Fetch
+  @ObservationIgnored private var freshness = Freshness()
+
+  /// The default reads the configured `port` path on each load, so a new path
+  /// takes effect immediately.
+  init(fetch: @escaping Fetch = { try await PortClient().macPortsInfo() }) {
+    self.fetch = fetch
+  }
+
+  /// Loads unless the facts were loaded recently and nothing has changed since.
+  func loadIfStale() async {
+    if freshness.isStale { await load() }
+  }
+
+  /// Marks the facts out of date, such as after a command changed the system.
+  func invalidate() { freshness.invalidate() }
+
+  func load() async {
+    let token = freshness.begin()
+    do {
+      let loaded = try await fetch()
+      info = loaded
+      registryReadable = FileManager.default.isReadableFile(atPath: loaded.registryPath)
+      failure = nil
+      freshness.markLoaded(token)
+    } catch is CancellationError {
+      // Leaving the tab cancels the load; keep what was there.
+    } catch {
+      failure = error.localizedDescription
+    }
+  }
+}
+
 /// App preferences and facts about the local MacPorts installation.
 struct ConfigurationView: View {
+  /// From the Installed list, so showing this tab doesn't run `port installed`.
+  private let installedCount: Int
   @AppStorage(PortClient.verboseDefaultsKey) private var verbose = false
   @AppStorage(ActivityLog.autoOpenKey) private var autoOpen = true
   @Environment(ActivityLog.self) private var activity
@@ -11,20 +58,26 @@ struct ConfigurationView: View {
   @State private var newSource = ""
   @State private var sourceError: String?
   @State private var sourceToRemove: String?
-  @State private var info: MacPortsInfo?
-  @State private var failure: String?
+  private let model: ConfigurationModel
+  private var info: MacPortsInfo? { model.info }
+  private var failure: String? { model.failure }
+
+  init(model: ConfigurationModel, installedCount: Int) {
+    self.model = model
+    self.installedCount = installedCount
+  }
 
   var body: some View {
     Form {
-      Section("Activity") {
+      Section {
         Toggle("Open Activity pane when a command starts", isOn: $autoOpen)
         Toggle("Verbose output", isOn: $verbose)
+      } header: {
+        Text("Activity")
+      } footer: {
         Text(
-          "Passes -v to port so the Activity pane shows full configure and build output. "
-            + "Turn it off for faster, quieter runs."
-        )
-        .font(.caption)
-        .foregroundStyle(.secondary)
+          "Verbose output passes -v to port so the Activity pane shows full configure and build "
+            + "output. Turn it off for faster, quieter runs.")
       }
       Section("MacPorts") {
         pathEditor
@@ -32,8 +85,19 @@ struct ConfigurationView: View {
           row("Version", info.version)
           row("Prefix", info.prefix)
           row("Data directory", info.dataPath)
+          row("Registry database", info.registryPath)
+          LabeledContent("Registry status") {
+            if model.registryReadable {
+              StatusLabel(
+                "Present and readable", systemImage: "checkmark.circle.fill", color: .green)
+            } else {
+              StatusLabel(
+                "Missing or unreadable", systemImage: "exclamationmark.triangle.fill",
+                color: .orange)
+            }
+          }
           row("Applications", info.applicationsDir)
-          row("Installed ports", "\(info.installedCount)")
+          row("Installed ports", "\(installedCount)")
           row(
             "Last sync", info.lastSync?.formatted(date: .abbreviated, time: .shortened) ?? "Unknown"
           )
@@ -45,16 +109,17 @@ struct ConfigurationView: View {
                 Button("Remove source", systemImage: "minus.circle") { sourceToRemove = src }
                   .labelStyle(.iconOnly).buttonStyle(.borderless)
                   .disabled(info.sources.count < 2 || activity.isRunning)
+                  .help(removeSourceHelp(sourceCount: info.sources.count))
               }
             }
           }
         } else if let failure {
           Text(failure).foregroundStyle(.secondary)
         } else {
-          ProgressView()
+          ProgressView("Reading MacPorts settings…")
         }
       }
-      Section("Add a source") {
+      Section {
         HStack {
           TextField("", text: $newSource, prompt: Text("rsync://, https://, or file:///path"))
             .textFieldStyle(.roundedBorder)
@@ -63,35 +128,16 @@ struct ConfigurationView: View {
             .disabled(!MacPortsInfo.isValidSourceURL(trimmedSource) || activity.isRunning)
         }
         if let sourceError {
-          Label(sourceError, systemImage: "exclamationmark.triangle.fill")
-            .font(.caption).foregroundStyle(.orange)
+          StatusLabel(sourceError, systemImage: "exclamationmark.triangle.fill", color: .orange)
+            .font(.caption)
         }
+      } header: {
+        Text("Add a source")
+      } footer: {
         Text(
           "Adds a ports tree to sources.conf (uses macOS administrator authorization). "
             + "Local file:/// sources are searched first so they override remote ports; "
-            + "run portindex in a local tree before use. Sync afterwards to fetch remote sources."
-        )
-        .font(.caption)
-        .foregroundStyle(.secondary)
-      }
-      Section("Maintenance") {
-        HStack {
-          Button("Self-update", systemImage: "arrow.triangle.2.circlepath") {
-            runMaintenance("sudo port selfupdate", name: "selfupdate") {
-              try await $0.selfupdate(onOutput: $1)
-            }
-          }
-          Button("Sync", systemImage: "arrow.down.circle") {
-            runMaintenance("sudo port sync", name: "sync") { try await $0.sync(onOutput: $1) }
-          }
-        }
-        .disabled(activity.isRunning)
-        Text(
-          "Self-update upgrades MacPorts itself and refreshes the ports tree. "
-            + "Sync refreshes the ports tree only. Both use macOS administrator authorization."
-        )
-        .font(.caption)
-        .foregroundStyle(.secondary)
+            + "run portindex in a local tree before use. Sync afterwards to fetch remote sources.")
       }
     }
     .formStyle(.grouped)
@@ -109,8 +155,30 @@ struct ConfigurationView: View {
     }
     .task {
       pathDraft = PortClient.configuredExecutablePath
-      await loadInfo()
+      await model.loadIfStale()
     }
+    .toolbar {
+      ToolbarItemGroup {
+        Button("Self-update", systemImage: "arrow.triangle.2.circlepath") {
+          runMaintenance("sudo port selfupdate", name: "selfupdate") {
+            try await $0.selfupdate(onOutput: $1)
+          }
+        }
+        .help("Upgrade MacPorts and refresh the ports tree")
+        .disabled(activity.isRunning)
+        Button("Sync", systemImage: "arrow.down.circle") {
+          runMaintenance("sudo port sync", name: "sync") { try await $0.sync(onOutput: $1) }
+        }
+        .help("Refresh the ports tree without upgrading MacPorts")
+        .disabled(activity.isRunning)
+      }
+    }
+  }
+
+  private func removeSourceHelp(sourceCount: Int) -> String {
+    if sourceCount < 2 { return "The last source can't be removed" }
+    if activity.isRunning { return "Wait for the running command to finish" }
+    return "Remove this source from sources.conf"
   }
 
   private var trimmedSource: String { newSource.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -146,10 +214,9 @@ struct ConfigurationView: View {
     }
   }
 
-  private var draftProblem: String? {
-    PortClient.problem(
-      withExecutablePath: pathDraft.trimmingCharacters(in: .whitespacesAndNewlines))
-  }
+  /// What's wrong with the typed `port` path; updated when it changes rather
+  /// than checking the disk on every redraw.
+  @State private var draftProblem: String?
 
   private var pathEditor: some View {
     VStack(alignment: .leading, spacing: 6) {
@@ -175,12 +242,16 @@ struct ConfigurationView: View {
         }
       }
       if let problem = draftProblem {
-        Label(problem, systemImage: "exclamationmark.triangle.fill")
-          .font(.caption).foregroundStyle(.orange)
+        StatusLabel(problem, systemImage: "exclamationmark.triangle.fill", color: .orange)
+          .font(.caption)
       } else {
         Text("Point this at a MacPorts installed outside /opt/local. Takes effect immediately.")
           .font(.caption).foregroundStyle(.secondary)
       }
+    }
+    .onChange(of: pathDraft, initial: true) {
+      draftProblem = PortClient.problem(
+        withExecutablePath: pathDraft.trimmingCharacters(in: .whitespacesAndNewlines))
     }
   }
 
@@ -200,12 +271,7 @@ struct ConfigurationView: View {
     if panel.runModal() == .OK, let url = panel.url { pathDraft = url.path }
   }
 
-  private func loadInfo() async {
-    do {
-      info = try await PortClient().macPortsInfo()
-      failure = nil
-    } catch { failure = error.localizedDescription }
-  }
+  private func loadInfo() async { await model.load() }
 
   private func runMaintenance(
     _ title: String, name: String,

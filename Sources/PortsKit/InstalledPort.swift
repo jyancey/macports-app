@@ -7,8 +7,9 @@ public struct InstalledPort: Identifiable, Hashable, Sendable {
   public let revision: Int
   public let variants: [String]
   public let isActive: Bool
-
-  public var id: String { "\(name)@\(version)_\(revision)\(variants.map { "+" + $0 }.joined())" }
+  /// `name@version_revision+variants`. Stored because tables and selections
+  /// compare IDs constantly.
+  public let id: String
 
   public init(name: String, version: String, revision: Int, variants: [String], isActive: Bool) {
     self.name = name
@@ -16,6 +17,13 @@ public struct InstalledPort: Identifiable, Hashable, Sendable {
     self.revision = revision
     self.variants = variants
     self.isActive = isActive
+    id = "\(name)@\(version)_\(revision)" + variants.map { "+" + $0 }.joined()
+  }
+
+  /// `@version_revision+variants`, as `port` accepts it after the name to
+  /// pick this exact installed version.
+  public var versionSpec: String {
+    "@\(version)_\(revision)" + variants.map { "+" + $0 }.joined()
   }
 }
 

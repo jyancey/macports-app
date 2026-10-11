@@ -32,9 +32,12 @@ public enum SearchRanking {
       if n.contains(t) { return 2 }
       return 3
     }
-    return names.sorted {
-      let (a, b) = (rank($0), rank($1))
-      return a != b ? a < b : $0.localizedStandardCompare($1) == .orderedAscending
-    }
+    // Rank each name once, rather than twice per comparison (a "py" search
+    // sorts over 11,000 names).
+    let ranked = names.map { (rank: rank($0), name: $0) }
+    return ranked.sorted { a, b in
+      a.rank != b.rank
+        ? a.rank < b.rank : a.name.localizedStandardCompare(b.name) == .orderedAscending
+    }.map(\.name)
   }
 }

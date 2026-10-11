@@ -21,6 +21,18 @@ import Testing
   }
 }
 
+@Suite struct RegistryStatusTests {
+  @Test func parsesHealthyIntegrityCheck() {
+    #expect(RegistryStatus.parseIntegrityOutput("ok\n", status: 0) == .valid)
+  }
+
+  @Test func parsesFailedIntegrityCheck() {
+    #expect(
+      RegistryStatus.parseIntegrityOutput("*** in database main\n", status: 1)
+        == .invalid("*** in database main"))
+  }
+}
+
 @Suite struct ExecutablePathTests {
   @Test func rejectsUnsafeAndMissingPaths() {
     #expect(PortClient.problem(withExecutablePath: "/opt/local/bin/port; rm -rf ~") != nil)

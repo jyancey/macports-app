@@ -11,5 +11,6 @@ let package = Package(
       path: "Sources/PortsApp",
       resources: [.process("Resources")]),
     .testTarget(name: "PortsKitTests", dependencies: ["PortsKit"]),
+    .testTarget(name: "MacPortsAppTests", dependencies: ["MacPortsApp", "PortsKit"]),
   ]
 )
