@@ -50,6 +50,35 @@ import Testing
     #expect(log.firstChunk == next)
   }
 
+  @Test func failureOpensThePaneEvenWithAutoOpenOff() async {
+    let defaults = UserDefaults.standard
+    let saved = defaults.object(forKey: ActivityLog.autoOpenKey)
+    defaults.set(false, forKey: ActivityLog.autoOpenKey)
+    defer { defaults.set(saved, forKey: ActivityLog.autoOpenKey) }
+
+    let log = ActivityLog()
+    await run(log, ["one\n"])
+    #expect(!log.isVisible)
+    await run(log, [], failing: true)
+    #expect(log.isVisible)
+  }
+
+  @Test func runningCommandAndStartAreKnownWhileItRuns() async throws {
+    let log = ActivityLog()
+    let gates = Gates()
+    let before = Date()
+    let run = Task {
+      await log.run("sudo port install zlib", name: "zlib") { _ in try await gates.pass("run") }
+    }
+    #expect(try await until { log.isRunning })
+    #expect(log.runningTitle == "sudo port install zlib")
+    #expect(log.startedAt.map { $0 >= before } == true)
+    await gates.open("run")
+    await run.value
+    #expect(log.runningTitle == nil)
+    #expect(log.startedAt == nil)
+  }
+
   // MARK: Stop
 
   /// A command that runs until it is asked to stop, then fails the way an

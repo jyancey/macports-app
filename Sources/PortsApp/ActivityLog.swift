@@ -17,6 +17,10 @@ final class ActivityLog {
   /// True when the most recent run ended in an error.
   private(set) var lastRunFailed = false
   private(set) var runningName: String?
+  /// The running command as shown in the log ("sudo port install zlib").
+  private(set) var runningTitle: String?
+  /// When the running command started.
+  private(set) var startedAt: Date?
   /// Counts finished runs. Any run may have changed the system, so cached tab
   /// data watches this to know when it is out of date.
   private(set) var completedRuns = 0
@@ -62,6 +66,8 @@ final class ActivityLog {
     isRunning = true
     lastRunFailed = false
     runningName = name
+    runningTitle = title
+    startedAt = Date()
     if UserDefaults.standard.object(forKey: Self.autoOpenKey) as? Bool ?? true { isVisible = true }
     append("$ \(title)\n")
     parser = InstallProgressParser()
@@ -71,6 +77,8 @@ final class ActivityLog {
     defer {
       isRunning = false
       runningName = nil
+      runningTitle = nil
+      startedAt = nil
       progress = [:]
       self.stop = nil
       isStopping = false
@@ -88,6 +96,8 @@ final class ActivityLog {
       append("Stopped\n\n")
     } catch {
       lastRunFailed = true
+      // A failure is always shown, even when the pane doesn't open for new commands.
+      isVisible = true
       append("✗ \(error.localizedDescription)\n\n")
     }
     return false
@@ -198,10 +208,9 @@ struct ActivityLogView: View {
       HStack {
         Label("Activity", systemImage: "terminal")
           .font(.headline)
-        Circle()
-          .fill(log.isRunning ? Color.yellow : log.lastRunFailed ? Color.red : Color.green)
-          .frame(width: 10, height: 10)
-          .help(log.isRunning ? "Busy" : log.lastRunFailed ? "Last command failed" : "Ready")
+        ActivityStatusView(log: log)
+          .font(.callout)
+          .padding(.leading, 8)
         Spacer()
         if log.isRunning {
           Button("Stop", systemImage: "stop.circle") { log.requestStop() }
@@ -224,5 +233,59 @@ struct ActivityLogView: View {
     }
     .frame(height: height)
     .background(.background)
+  }
+}
+
+/// What the log is doing, in words rather than colour alone: the running
+/// command and how long it has run, that the last command failed, or Ready.
+struct ActivityStatusView: View {
+  let log: ActivityLog
+
+  var body: some View {
+    if log.isRunning {
+      HStack(spacing: 6) {
+        ProgressView().controlSize(.small)
+        Text(log.isStopping ? "Stopping…" : log.runningTitle ?? "Working…")
+          .lineLimit(1)
+          .truncationMode(.middle)
+        if let startedAt = log.startedAt {
+          Text(startedAt, style: .timer)
+            .monospacedDigit()
+            .foregroundStyle(.secondary)
+        }
+      }
+      .accessibilityElement(children: .combine)
+    } else if log.lastRunFailed {
+      Label {
+        Text("Last command failed")
+      } icon: {
+        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
+      }
+    } else {
+      Label("Ready", systemImage: "checkmark.circle").foregroundStyle(.secondary)
+    }
+  }
+}
+
+/// The toolbar's Activity Log icon: pulses while a command runs and turns into
+/// a red warning after a failure, so both show while the pane is hidden.
+struct ActivityToolbarIcon: View {
+  let log: ActivityLog
+
+  var body: some View {
+    if log.lastRunFailed && !log.isRunning {
+      Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
+    } else {
+      Image(systemName: log.isRunning ? "terminal.fill" : "terminal")
+        .symbolEffect(.pulse, isActive: log.isRunning)
+    }
+  }
+
+  static func help(_ log: ActivityLog) -> String {
+    if log.isRunning {
+      return "Running \(log.runningTitle ?? "a command"). Show or hide the activity log"
+    }
+    if log.lastRunFailed { return "The last command failed. Show or hide the activity log" }
+    return "Show or hide the activity log"
   }
 }

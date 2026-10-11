@@ -168,6 +168,17 @@ actor FakePortCommands: PortCommandRunner {
     #expect(!gated.isWorking(on: "zlib"))
   }
 
+  @Test func removingAllInactiveVersionsWaitsForConfirmation() async {
+    let actions = makeActions()
+    actions.requestRemoveAllInactive()
+    #expect(actions.removeAllInactiveRequested)
+    #expect(await runner.calls.isEmpty)
+
+    await actions.confirmRemoveAllInactive()
+    #expect(!actions.removeAllInactiveRequested)
+    #expect(await runner.calls == ["uninstall inactive"])
+  }
+
   @Test func nothingStartsWhileACommandIsRunning() async throws {
     let actions = makeActions()
     let gates = Gates()
@@ -179,6 +190,8 @@ actor FakePortCommands: PortCommandRunner {
     await actions.upgradeAll()
     actions.requestUninstall("zlib")
     #expect(actions.uninstallRequest == nil)
+    actions.requestRemoveAllInactive()
+    #expect(!actions.removeAllInactiveRequested)
     #expect(await runner.calls.isEmpty)
     #expect(reloads.count == 0)
     await gates.open("busy")

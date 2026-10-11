@@ -87,6 +87,8 @@ final class PortActions {
   var uninstallRequest: String?
   /// Set while the confirmation to activate an inactive version is showing.
   var activateRequest: InstalledPort?
+  /// Set while the confirmation to remove every inactive version is showing.
+  var removeAllInactiveRequested = false
   /// The port whose variants are being looked up before installing.
   private(set) var checkingVariants: String?
   /// The ports the running command was started for.
@@ -201,7 +203,18 @@ final class PortActions {
     }
   }
 
-  func removeAllInactive() async {
+  /// Asks for confirmation; `confirmRemoveAllInactive` does the work.
+  func requestRemoveAllInactive() {
+    guard !activity.isRunning else { return }
+    removeAllInactiveRequested = true
+  }
+
+  func confirmRemoveAllInactive() async {
+    removeAllInactiveRequested = false
+    await removeAllInactive()
+  }
+
+  private func removeAllInactive() async {
     let runner = self.runner
     await run("sudo port uninstall inactive", names: ["inactive"]) { out in
       try await runner.uninstallInactive(onOutput: out)

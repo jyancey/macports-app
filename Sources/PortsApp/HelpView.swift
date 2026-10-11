@@ -43,7 +43,7 @@ struct HelpView: View {
           [
             "Shows the output of every port command. Drag the divider to resize it.",
             "Stop (⌘.) interrupts the running command and everything it started. A partly built port is kept, so installing it again resumes the build.",
-            "Green dot: ready. Yellow: busy. Red: the last command failed.",
+            "The header shows the running command and how long it has run, or that the last command failed. A failed command always opens the pane, and the toolbar's Activity Log icon pulses while a command runs and turns into a red warning after a failure.",
           ])
         section(
           "Keyboard shortcuts",
