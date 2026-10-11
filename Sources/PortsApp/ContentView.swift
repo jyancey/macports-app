@@ -135,12 +135,44 @@ final class SelectionsModel {
   var isLoading = false
   var errorMessage: String?
 
+  /// Choices made but not yet shown by a reload, by group name, so a picker
+  /// doesn't snap back while the command runs.
+  private(set) var pending: [String: String] = [:]
+
   typealias Fetch = @Sendable () async throws -> [PortSelectGroup]
+  typealias SetSelection =
+    @Sendable (
+      _ group: String, _ option: String, _ onOutput: @escaping @MainActor @Sendable (String) -> Void
+    ) async throws -> Void
   private let fetch: Fetch
+  private let setSelection: SetSelection
   @ObservationIgnored private var freshness = Freshness()
 
-  init(fetch: @escaping Fetch = { try await PortClient().selections() }) {
+  init(
+    fetch: @escaping Fetch = { try await PortClient().selections() },
+    setSelection: @escaping SetSelection = { group, option, out in
+      try await PortClient().setSelection(group: group, option: option, onOutput: out)
+    }
+  ) {
     self.fetch = fetch
+    self.setSelection = setSelection
+  }
+
+  /// The option to show for `group`: a pending choice, else the current one.
+  func shownSelection(_ group: PortSelectGroup) -> String {
+    pending[group.name] ?? group.selected
+  }
+
+  /// Selects `option` ("none" unsets) through the Activity log, then reloads.
+  func select(_ option: String, in group: PortSelectGroup, activity: ActivityLog) async {
+    guard !activity.isRunning, option != shownSelection(group) else { return }
+    pending[group.name] = option
+    defer { pending[group.name] = nil }
+    let setSelection = self.setSelection
+    await activity.run("sudo port select --set \(group.name) \(option)", name: group.name) { out in
+      try await setSelection(group.name, option, out)
+    }
+    await load()
   }
 
   /// Loads unless the groups were loaded recently and nothing has changed since.
@@ -623,7 +655,7 @@ struct ContentView: View {
         .searchable(text: $search, placement: .toolbar, prompt: Text(searchPrompt))
         .searchFocused($searchFocused)
       case .selections:
-        SelectionsListView(model: selectionsModel, selection: $groupSelection)
+        SelectionsListView(model: selectionsModel, activity: activity, selection: $groupSelection)
       case .health:
         VStack(spacing: 0) {
           PaneHeader(title: "Health", subtitle: "Environment checks")
@@ -709,7 +741,7 @@ struct ContentView: View {
       } else if currentMode == .selections,
         let group = selectionsModel.groups.first(where: { $0.id == groupSelection })
       {
-        SelectionDetailView(group: group) { await selectionsModel.load() }
+        SelectionDetailView(group: group, model: selectionsModel)
       } else if currentMode == .health {
         ContentUnavailableView(
           "Health", systemImage: "stethoscope",

@@ -402,6 +402,8 @@ struct OutdatedListView: View {
 
 struct SelectionsListView: View {
   let model: SelectionsModel
+  /// Passed in for the table cells, like the other lists.
+  let activity: ActivityLog
   @Binding var selection: String?
 
   var body: some View {
@@ -426,11 +428,29 @@ struct SelectionsListView: View {
     } else {
       Table(model.groups, selection: $selection) {
         TableColumn("Group", value: \.name)
-        TableColumn("Selected") {
-          Text($0.selected).foregroundStyle($0.isSet ? .primary : .secondary)
+        TableColumn("Selected") { group in
+          Picker("Selected", selection: choice(for: group)) {
+            ForEach(group.options.filter { $0 != "none" }, id: \.self) { Text($0).tag($0) }
+            Divider()
+            Text("None").tag("none")
+          }
+          .labelsHidden()
+          .pickerStyle(.menu)
+          .controlSize(.small)
+          .fixedSize()
+          .disabled(activity.isRunning)
+          .help("Choose which version \(group.name) uses (uses administrator authorization)")
         }
       }
     }
+  }
+}
+
+extension SelectionsListView {
+  fileprivate func choice(for group: PortSelectGroup) -> Binding<String> {
+    Binding(
+      get: { model.shownSelection(group) },
+      set: { option in Task { await model.select(option, in: group, activity: activity) } })
   }
 }
 

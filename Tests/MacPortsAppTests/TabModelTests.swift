@@ -271,3 +271,51 @@ extension Gates {
     #expect(model.findings == [])
   }
 }
+
+@MainActor
+@Suite(.timeLimit(.minutes(1))) struct SelectionChoiceTests {
+  let gates = Gates()
+
+  /// `select` waits on the gate "set"; each load reports what was last set.
+  func makeModel() -> SelectionsModel {
+    final class Current: @unchecked Sendable { var value = "python311" }
+    let current = Current()
+    let gates = gates
+    return SelectionsModel(
+      fetch: {
+        [
+          PortSelectGroup(
+            name: "python", selected: current.value, options: ["python311", "python312", "none"])
+        ]
+      },
+      setSelection: { _, option, _ in
+        try await gates.pass("set")
+        current.value = option
+      })
+  }
+
+  @Test func choiceShowsAtOnceAndStaysAfterTheReload() async throws {
+    let model = makeModel()
+    let log = ActivityLog {}
+    await model.load()
+    let group = try #require(model.groups.first)
+    let select = Task { await model.select("python312", in: group, activity: log) }
+    #expect(try await gates.waitForCall("set"))
+    #expect(model.shownSelection(group) == "python312")
+    await gates.open("set")
+    await select.value
+    #expect(model.pending.isEmpty)
+    #expect(model.groups.first?.selected == "python312")
+    #expect(log.chunks.joined().hasPrefix("$ sudo port select --set python python312\n"))
+  }
+
+  @Test func choosingTheCurrentOptionDoesNothing() async throws {
+    let model = makeModel()
+    let log = ActivityLog {}
+    await model.load()
+    let group = try #require(model.groups.first)
+    await model.select("python311", in: group, activity: log)
+    #expect(await gates.calls.isEmpty)
+    #expect(log.isEmpty)
+  }
+}

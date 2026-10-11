@@ -4,7 +4,7 @@ import SwiftUI
 /// Shows one `port select` group and lets the user pick or unset its version.
 struct SelectionDetailView: View {
   let group: PortSelectGroup
-  let onChanged: () async -> Void
+  let model: SelectionsModel
   @Environment(ActivityLog.self) private var activity
 
   var body: some View {
@@ -41,12 +41,6 @@ struct SelectionDetailView: View {
   }
 
   private func apply(_ option: String) {
-    Task {
-      await activity.run("sudo port select --set \(group.name) \(option)", name: group.name) {
-        out in
-        try await PortClient().setSelection(group: group.name, option: option, onOutput: out)
-      }
-      await onChanged()
-    }
+    Task { await model.select(option, in: group, activity: activity) }
   }
 }
