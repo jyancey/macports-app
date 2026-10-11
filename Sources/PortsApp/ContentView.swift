@@ -35,8 +35,23 @@ final class SearchModel {
   private(set) var binary: [String: BinaryAvailability] = [:]
   private var binaryTask: Task<Void, Never>?
 
-  private let client = PortClient()
+  typealias Search = @Sendable (_ term: String, _ scope: SearchScope) async throws -> [String]
+  typealias BinaryHint = @Sendable (_ name: String) async -> BinaryAvailability
+
+  private let runSearch: Search
+  private let binaryHint: BinaryHint
   private static let binaryCheckLimit = 100
+
+  /// Defaults run `port search` and query the archive site; tests substitute their own.
+  init(
+    search: @escaping Search = { [client = PortClient()] term, scope in
+      try await client.search(term, scope: scope)
+    },
+    binaryHint: @escaping BinaryHint = BinaryArchive.anyBuildAvailability
+  ) {
+    runSearch = search
+    self.binaryHint = binaryHint
+  }
 
   func binaryCheckPending(_ name: String) -> Bool {
     results.prefix(Self.binaryCheckLimit).contains(name)
@@ -45,13 +60,14 @@ final class SearchModel {
   private func checkBinaries(_ names: [String]) {
     binaryTask?.cancel()
     binary = [:]
+    let binaryHint = self.binaryHint
     binaryTask = Task {
       let batch = Array(names.prefix(Self.binaryCheckLimit))
       await withTaskGroup(of: (String, BinaryAvailability).self) { group in
         var iterator = batch.makeIterator()
         func addNext() {
           if let name = iterator.next() {
-            group.addTask { (name, await BinaryArchive.anyBuildAvailability(name: name)) }
+            group.addTask { (name, await binaryHint(name)) }
           }
         }
         for _ in 0..<6 { addNext() }
@@ -67,21 +83,31 @@ final class SearchModel {
     }
   }
 
-  func search(_ term: String, scope: SearchScope) async {
+  /// Starts a search, cancelling (and terminating) any search still running so
+  /// an older, slower one can't replace the newer results.
+  func search(_ term: String, scope: SearchScope) {
+    searchTask?.cancel()
+    searchTask = Task { await performSearch(term, scope: scope) }
+  }
+
+  private var searchTask: Task<Void, Never>?
+
+  private func performSearch(_ term: String, scope: SearchScope) async {
     isSearching = true
     errorMessage = nil
-    defer { isSearching = false }
     do {
-      let found = try await client.search(term, scope: scope)
+      let found = try await runSearch(term, scope)
       guard !Task.isCancelled else { return }
       results = found
       hasSearched = true
       checkBinaries(found)
-    } catch is CancellationError {
     } catch {
+      // A cancelled search was replaced by a newer one, which owns the state.
+      guard !Task.isCancelled, !(error is CancellationError) else { return }
       results = []
       errorMessage = error.localizedDescription
     }
+    isSearching = false
   }
 }
 
@@ -401,7 +427,7 @@ struct ContentView: View {
             .disabled(!searchIsEnabled)
             .onSubmit {
               guard currentMode == .available else { return }
-              Task { await searchModel.search(search, scope: scope) }
+              searchModel.search(search, scope: scope)
             }
           Menu {
             ForEach(SearchScope.allCases) { searchScope in
@@ -583,7 +609,7 @@ struct ContentView: View {
         scope: $scope,
         onSearch: {
           guard currentMode == .available else { return }
-          Task { await searchModel.search(search, scope: scope) }
+          searchModel.search(search, scope: scope)
         })
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     } else if currentMode == .health {
@@ -608,12 +634,12 @@ struct ContentView: View {
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .onChange(of: scope) {
       if currentMode == .available, searchModel.hasSearched, !search.isEmpty {
-        Task { await searchModel.search(search, scope: scope) }
+        searchModel.search(search, scope: scope)
       }
     }
     .onSubmit(of: .search) {
       guard currentMode == .available else { return }
-      Task { await searchModel.search(search, scope: scope) }
+      searchModel.search(search, scope: scope)
     }
   }
 
