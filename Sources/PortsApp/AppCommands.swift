@@ -23,9 +23,11 @@ extension FocusedValues {
 }
 
 /// Menu bar commands: Find, and View menu items for the sidebar, the Activity
-/// log, the tabs and Refresh.
+/// log, the tabs, Refresh and stopping the running command.
 struct AppCommands: Commands {
   @FocusedValue(\.windowActions) private var window
+  /// App-wide, so Stop works whichever window is in front.
+  let activity: ActivityLog
 
   var body: some Commands {
     // Replaces the standard Find submenu so that Find (⌘F) also reaches the
@@ -66,6 +68,9 @@ struct AppCommands: Commands {
       Button("Refresh") { window?.refresh() }
         .keyboardShortcut("r")
         .disabled(window?.canRefresh != true)
+      Button("Stop Command") { activity.requestStop() }
+        .keyboardShortcut(".")
+        .disabled(!activity.canStop)
       Divider()
     }
   }

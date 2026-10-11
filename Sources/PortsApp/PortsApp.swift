@@ -32,7 +32,7 @@ struct MacPortsApp: App {
         .frame(minWidth: 900, minHeight: 500)
     }
     .commands {
-      AppCommands()
+      AppCommands(activity: activity)
       CommandGroup(replacing: .appInfo) {
         Button("About \(AppInfo.name)") { showAbout() }
       }

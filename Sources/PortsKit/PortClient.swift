@@ -321,8 +321,13 @@ public struct PortClient: Sendable {
       throw PortClientError.invalidName(log.path)
     }
 
-    let command =
-      "\(executableURL.path) -N \(verbose ? "-v " : "")\(action) \(arguments) > \(log.path) 2>&1"
+    let stopFile = directory.appendingPathComponent("stop")
+    let command = PortClient.stoppableCommand(
+      "\(executableURL.path) -N \(verbose ? "-v " : "")\(action) \(arguments)",
+      log: log.path, stopFile: stopFile.path)
+    let stop = CommandStop.current
+    stop?.register(stopFile)
+    defer { stop?.unregister() }
     let tail = Task.detached { await PortClient.tail(log, onOutput: onOutput) }
     do {
       try await runPrivileged(command)
@@ -333,6 +338,22 @@ public struct PortClient: Sendable {
     }
     tail.cancel()
     await tail.value
+  }
+
+  /// A shell command that runs `command` with its output in `log`, in its own
+  /// process group, and interrupts that whole group (so compilers `port`
+  /// started stop too) once `stopFile` exists; if it is still running five
+  /// seconds later, it is terminated. Exits with `command`'s status.
+  ///
+  /// `set -m` gives the background job its own process group; it also keeps
+  /// the job from ignoring SIGINT, as background jobs otherwise do. All parts
+  /// must already be validated: this is run by a root shell.
+  static func stoppableCommand(_ command: String, log: String, stopFile: String) -> String {
+    let signal = { (name: String) in "kill -\(name) -$p 2>/dev/null || kill -\(name) $p" }
+    return "set -m; \(command) > \(log) 2>&1 & p=$!; "
+      + "(while [ ! -e \(stopFile) ]; do sleep 0.2; done; "
+      + "\(signal("INT")); sleep 5; \(signal("TERM"))) >/dev/null 2>&1 & w=$!; "
+      + "wait $p; s=$?; kill -$w 2>/dev/null || kill $w 2>/dev/null; exit $s"
   }
 
   /// Adds a ports source to sources.conf. The edited file is staged in a

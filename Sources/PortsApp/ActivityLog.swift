@@ -36,6 +36,21 @@ final class ActivityLog {
 
   var isEmpty: Bool { chunks.isEmpty }
 
+  /// Stops the running command; nil when nothing is running.
+  @ObservationIgnored private var stop: CommandStop?
+  /// True after Stop was pressed, until the command ends.
+  private(set) var isStopping = false
+  var canStop: Bool { isRunning && !isStopping }
+
+  /// Interrupts the running `port` command (and whatever it started). A
+  /// partly built port is kept, so installing it again resumes the build.
+  func requestStop() {
+    guard canStop, let stop else { return }
+    isStopping = true
+    append("Stopping…\n")
+    stop.request()
+  }
+
   /// Runs `work`, streaming its output into the log. Returns true on success.
   /// Only one command runs at a time; a second request is ignored.
   @discardableResult
@@ -51,18 +66,26 @@ final class ActivityLog {
     append("$ \(title)\n")
     parser = InstallProgressParser()
     progress = [:]
+    let stop = CommandStop()
+    self.stop = stop
     defer {
       isRunning = false
       runningName = nil
       progress = [:]
+      self.stop = nil
+      isStopping = false
       completedRuns += 1
     }
     do {
-      try await work { [weak self] text in self?.append(text) }
+      try await CommandStop.$current.withValue(stop) {
+        try await work { [weak self] text in self?.append(text) }
+      }
       append("✓ Finished\n\n")
       return true
     } catch PortClientError.cancelled {
       append("Cancelled\n\n")
+    } catch _ where stop.isRequested {
+      append("Stopped\n\n")
     } catch {
       lastRunFailed = true
       append("✗ \(error.localizedDescription)\n\n")
@@ -180,6 +203,11 @@ struct ActivityLogView: View {
           .frame(width: 10, height: 10)
           .help(log.isRunning ? "Busy" : log.lastRunFailed ? "Last command failed" : "Ready")
         Spacer()
+        if log.isRunning {
+          Button("Stop", systemImage: "stop.circle") { log.requestStop() }
+            .disabled(!log.canStop)
+            .help("Interrupt the running command (⌘.)")
+        }
         Button("Clear", systemImage: "trash") { log.clear() }
           .disabled(log.isEmpty || log.isRunning)
         Button("Hide", systemImage: "chevron.down") { log.isVisible = false }
