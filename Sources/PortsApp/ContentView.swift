@@ -4,18 +4,21 @@ import SwiftUI
 @MainActor
 @Observable
 final class InstalledPortsModel {
-  var ports: [InstalledPort] = []
+  var ports: [InstalledPort] = [] {
+    didSet { names = Set(ports.map(\.name)) }
+  }
+  /// Names of the installed ports, for quick "is it installed" checks.
+  private(set) var names: Set<String> = []
   var isLoading = false
   var errorMessage: String?
-
-  private let client = PortClient()
 
   func load() async {
     isLoading = true
     errorMessage = nil
     defer { isLoading = false }
     do {
-      ports = try await client.installedPorts()
+      // A new client each time, so a changed `port` path applies at once.
+      ports = try await PortClient().installedPorts()
     } catch {
       ports = []
       errorMessage = error.localizedDescription
@@ -30,13 +33,31 @@ final class SearchModel {
   var isSearching = false
   var errorMessage: String?
   var hasSearched = false
+  /// The term the current results are for (the field may have changed since).
+  private(set) var searchedTerm = ""
   /// Pre-built binary hints for the current results; a missing key means
   /// not checked yet.
   private(set) var binary: [String: BinaryAvailability] = [:]
   private var binaryTask: Task<Void, Never>?
 
-  private let client = PortClient()
+  typealias Search = @Sendable (_ term: String, _ scope: SearchScope) async throws -> [String]
+  typealias BinaryHint = @Sendable (_ name: String) async -> BinaryAvailability
+
+  private let runSearch: Search
+  private let binaryHint: BinaryHint
   private static let binaryCheckLimit = 100
+
+  /// Defaults run `port search` (with the `port` path configured at the time)
+  /// and query the archive site; tests substitute their own.
+  init(
+    search: @escaping Search = { term, scope in
+      try await PortClient().search(term, scope: scope)
+    },
+    binaryHint: @escaping BinaryHint = BinaryArchive.anyBuildAvailability
+  ) {
+    runSearch = search
+    self.binaryHint = binaryHint
+  }
 
   func binaryCheckPending(_ name: String) -> Bool {
     results.prefix(Self.binaryCheckLimit).contains(name)
@@ -45,43 +66,42 @@ final class SearchModel {
   private func checkBinaries(_ names: [String]) {
     binaryTask?.cancel()
     binary = [:]
+    let binaryHint = self.binaryHint
     binaryTask = Task {
-      let batch = Array(names.prefix(Self.binaryCheckLimit))
-      await withTaskGroup(of: (String, BinaryAvailability).self) { group in
-        var iterator = batch.makeIterator()
-        func addNext() {
-          if let name = iterator.next() {
-            group.addTask { (name, await BinaryArchive.anyBuildAvailability(name: name)) }
-          }
-        }
-        for _ in 0..<6 { addNext() }
-        while let (name, result) = await group.next() {
-          if Task.isCancelled {
-            group.cancelAll()
-            return
-          }
-          binary[name] = result
-          addNext()
-        }
+      await checkBinariesInBatches(Array(names.prefix(Self.binaryCheckLimit))) { name in
+        (name, await binaryHint(name))
+      } deliver: { batch in
+        binary.merge(batch) { $1 }
       }
     }
   }
 
-  func search(_ term: String, scope: SearchScope) async {
+  /// Starts a search, cancelling (and terminating) any search still running so
+  /// an older, slower one can't replace the newer results.
+  func search(_ term: String, scope: SearchScope) {
+    searchTask?.cancel()
+    searchTask = Task { await performSearch(term, scope: scope) }
+  }
+
+  private var searchTask: Task<Void, Never>?
+
+  private func performSearch(_ term: String, scope: SearchScope) async {
     isSearching = true
     errorMessage = nil
-    defer { isSearching = false }
     do {
-      let found = try await client.search(term, scope: scope)
+      let found = try await runSearch(term, scope)
       guard !Task.isCancelled else { return }
       results = found
+      searchedTerm = term
       hasSearched = true
       checkBinaries(found)
-    } catch is CancellationError {
     } catch {
+      // A cancelled search was replaced by a newer one, which owns the state.
+      guard !Task.isCancelled, !(error is CancellationError) else { return }
       results = []
       errorMessage = error.localizedDescription
     }
+    isSearching = false
   }
 }
 
@@ -92,12 +112,34 @@ final class SelectionsModel {
   var isLoading = false
   var errorMessage: String?
 
+  typealias Fetch = @Sendable () async throws -> [PortSelectGroup]
+  private let fetch: Fetch
+  @ObservationIgnored private var freshness = Freshness()
+
+  init(fetch: @escaping Fetch = { try await PortClient().selections() }) {
+    self.fetch = fetch
+  }
+
+  /// Loads unless the groups were loaded recently and nothing has changed since.
+  func loadIfStale() async {
+    if freshness.isStale { await load() }
+  }
+
+  /// Marks the groups out of date, such as after a command changed the system.
+  func invalidate() { freshness.invalidate() }
+
   func load() async {
+    let token = freshness.begin()
+    let previousError = errorMessage
     isLoading = true
     errorMessage = nil
     defer { isLoading = false }
     do {
-      groups = try await PortClient().selections()
+      groups = try await fetch()
+      freshness.markLoaded(token)
+    } catch is CancellationError {
+      // Leaving the tab cancels the load; keep what was there.
+      errorMessage = previousError
     } catch {
       groups = []
       errorMessage = error.localizedDescription
@@ -116,7 +158,13 @@ final class OutdatedModel {
   private(set) var binary: [String: BinaryAvailability] = [:]
   private var binaryTask: Task<Void, Never>?
 
-  private let client = PortClient()
+  typealias Fetch = @Sendable () async throws -> [OutdatedPort]
+  private let fetch: Fetch
+  @ObservationIgnored private var freshness = Freshness()
+
+  init(fetch: @escaping Fetch = { try await PortClient().outdated() }) {
+    self.fetch = fetch
+  }
 
   func checkBinaries(installed: [InstalledPort]) {
     binaryTask?.cancel()
@@ -126,41 +174,42 @@ final class OutdatedModel {
       uniquingKeysWith: { first, _ in first })
     let batch = ports
     binaryTask = Task {
-      await withTaskGroup(of: (String, BinaryAvailability).self) { group in
-        var iterator = batch.makeIterator()
-        func addNext() {
-          guard let port = iterator.next() else { return }
-          let parts = port.availableVersion.split(separator: "_", maxSplits: 1)
-          let version = parts.first.map(String.init) ?? port.availableVersion
-          let revision = parts.count > 1 ? Int(parts[1]) ?? 0 : 0
-          let wanted = variants[port.name] ?? []
-          group.addTask {
-            (
-              port.name,
-              await BinaryArchive.availability(
-                name: port.name, version: version, revision: revision, variants: wanted)
-            )
-          }
-        }
-        for _ in 0..<6 { addNext() }
-        while let (name, result) = await group.next() {
-          if Task.isCancelled {
-            group.cancelAll()
-            return
-          }
-          binary[name] = result
-          addNext()
-        }
+      await checkBinariesInBatches(batch) { port in
+        let parts = port.availableVersion.split(separator: "_", maxSplits: 1)
+        let version = parts.first.map(String.init) ?? port.availableVersion
+        let revision = parts.count > 1 ? Int(parts[1]) ?? 0 : 0
+        return (
+          port.name,
+          await BinaryArchive.availability(
+            name: port.name, version: version, revision: revision,
+            variants: variants[port.name] ?? [])
+        )
+      } deliver: { batch in
+        binary.merge(batch) { $1 }
       }
     }
   }
 
+  /// Loads unless the list was loaded recently and nothing has changed since.
+  func loadIfStale() async {
+    if freshness.isStale { await load() }
+  }
+
+  /// Marks the list out of date, such as after a command changed the system.
+  func invalidate() { freshness.invalidate() }
+
   func load() async {
+    let token = freshness.begin()
+    let previousError = errorMessage
     isLoading = true
     errorMessage = nil
     defer { isLoading = false }
     do {
-      ports = try await client.outdated()
+      ports = try await fetch()
+      freshness.markLoaded(token)
+    } catch is CancellationError {
+      // Leaving the tab cancels the load; keep what was there.
+      errorMessage = previousError
     } catch {
       ports = []
       errorMessage = error.localizedDescription
@@ -193,12 +242,6 @@ enum BrowseMode: String, CaseIterable, Identifiable {
   }
 }
 
-struct SearchRow: Identifiable {
-  let name: String
-  let isInstalled: Bool
-  var id: String { name }
-}
-
 struct ContentView: View {
   @Environment(ActivityLog.self) private var activity
   @State private var model = InstalledPortsModel()
@@ -207,6 +250,9 @@ struct ContentView: View {
   @State private var outdatedSelection: String?
   @State private var inactiveSelection: InstalledPort.ID?
   @State private var selectionsModel = SelectionsModel()
+  @State private var healthModel = HealthModel()
+  @State private var configurationModel = ConfigurationModel()
+  @State private var detailCache = PortDetailCache()
   @State private var groupSelection: String?
   @State private var mode: BrowseMode? = .installed
   @State private var searchSelection: String?
@@ -217,27 +263,10 @@ struct ContentView: View {
 
   @State private var selection: InstalledPort.ID?
 
-  private var filtered: [InstalledPort] {
-    let matches =
-      search.isEmpty
-      ? model.ports
-      : model.ports.filter { $0.name.localizedCaseInsensitiveContains(search) }
-    return matches.sorted(using: sortOrder)
-  }
-
   private var selectedPort: InstalledPort? {
     model.ports.first { $0.id == selection }
   }
 
-  private var inactivePorts: [InstalledPort] {
-    let matches = model.ports.filter { !$0.isActive }
-    let shown =
-      search.isEmpty ? matches : matches.filter { $0.name.localizedCaseInsensitiveContains(search) }
-    return shown.sorted(using: sortOrder)
-  }
-
-  @AppStorage("activityHeight") private var activityHeight: Double = 200
-  @State private var dragPreview: Double?
   @State private var isSidebarVisible = true
 
   private var currentMode: BrowseMode { mode ?? .installed }
@@ -247,21 +276,37 @@ struct ContentView: View {
 
   var body: some View {
     split
-    .task { await model.load() }
+    .environment(detailCache)
+    .task {
+      await model.load()
+      // Load the outdated list up front so its tab opens at once and the
+      // sidebar can show how many updates there are.
+      await outdatedModel.loadIfStale()
+    }
     .task(id: outdatedModel.ports.map(\.availableVersion) + [String(model.ports.count)]) {
       outdatedModel.checkBinaries(installed: model.ports)
     }
     .task(id: mode) {
       if !searchIsEnabled { search = "" }
-      if currentMode == .outdated { await outdatedModel.load() }
-      if currentMode == .selections { await selectionsModel.load() }
+      if currentMode == .outdated { await outdatedModel.loadIfStale() }
+      if currentMode == .selections { await selectionsModel.loadIfStale() }
+    }
+    .onChange(of: activity.completedRuns) {
+      // A command may have changed what these show; reload on the next visit.
+      outdatedModel.invalidate()
+      selectionsModel.invalidate()
+      configurationModel.invalidate()
+      detailCache.removeAll()
     }
   }
 
   private func refreshAll() async {
-    await model.load()
-    await outdatedModel.load()
+    detailCache.removeAll()
+    async let installed: Void = model.load()
+    async let outdated: Void = outdatedModel.load()
     if currentMode == .selections { await selectionsModel.load() }
+    if currentMode == .configuration { await configurationModel.load() }
+    _ = await (installed, outdated)
   }
 
   private var upgradeAllButton: some View {
@@ -326,7 +371,9 @@ struct ContentView: View {
       if isSidebarVisible {
         VStack(spacing: 0) {
           List(BrowseMode.allCases, selection: $mode) { item in
-            Label(item.rawValue, systemImage: item.symbol).tag(item)
+            Label(item.rawValue, systemImage: item.symbol)
+              .badge(item == .outdated ? outdatedModel.ports.count : 0)
+              .tag(item)
           }
           .listStyle(.sidebar)
         }
@@ -353,7 +400,7 @@ struct ContentView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         if activity.isVisible {
-          activityPane
+          ActivityPane()
         }
       }
     }
@@ -401,7 +448,7 @@ struct ContentView: View {
             .disabled(!searchIsEnabled)
             .onSubmit {
               guard currentMode == .available else { return }
-              Task { await searchModel.search(search, scope: scope) }
+              searchModel.search(search, scope: scope)
             }
           Menu {
             ForEach(SearchScope.allCases) { searchScope in
@@ -431,29 +478,58 @@ struct ContentView: View {
     }
   }
 
-  private var mainPane: some View {
-    VStack(spacing: 0) {
-      paneHeader
-      list
+  @ViewBuilder private var mainPane: some View {
+    Group {
+      switch currentMode {
+      case .installed:
+        InstalledListView(
+          model: model, filter: search, sortOrder: $sortOrder, selection: $selection)
+      case .available:
+        SearchResultsView(
+          searchModel: searchModel, installed: model, activity: activity,
+          prebuiltOnly: prebuiltOnly,
+          selection: $searchSelection)
+      case .outdated:
+        OutdatedListView(
+          model: outdatedModel, filter: search, prebuiltOnly: prebuiltOnly,
+          selection: $outdatedSelection)
+      case .inactive:
+        InactiveListView(
+          model: model, filter: search, sortOrder: $sortOrder, selection: $inactiveSelection)
+      case .selections:
+        SelectionsListView(model: selectionsModel, selection: $groupSelection)
+      case .health:
+        VStack(spacing: 0) {
+          PaneHeader(title: "Health", subtitle: "Environment checks")
+          HealthView(model: healthModel)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+      case .configuration:
+        VStack(spacing: 0) {
+          PaneHeader(title: "Configuration", subtitle: "Settings")
+          ConfigurationView(
+            search: $search,
+            scope: $scope,
+            model: configurationModel,
+            installedCount: model.ports.count,
+            onSearch: {
+              guard currentMode == .available else { return }
+              searchModel.search(search, scope: scope)
+            })
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+      }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
-  }
-
-  private var paneHeader: some View {
-    VStack(alignment: .leading, spacing: 2) {
-      Text(
-        currentMode == .configuration
-          ? "Configuration" : currentMode == .health ? "Health" : "\(currentMode.rawValue) Ports"
-      )
-      .font(.title2.weight(.semibold))
-      Text(subtitle)
-        .font(.subheadline)
-        .foregroundStyle(.secondary)
+    .onChange(of: scope) {
+      if currentMode == .available, searchModel.hasSearched, !search.isEmpty {
+        searchModel.search(search, scope: scope)
+      }
     }
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .padding(.horizontal, 16)
-    .padding(.vertical, 10)
-    .background(.bar)
+    .onSubmit(of: .search) {
+      guard currentMode == .available else { return }
+      searchModel.search(search, scope: scope)
+    }
   }
 
   @ViewBuilder
@@ -462,7 +538,7 @@ struct ContentView: View {
       if currentMode == .available, let name = searchSelection {
         PortDetailView(
           name: name,
-          isInstalled: model.ports.contains { $0.name == name },
+          isInstalled: model.names.contains(name),
           onInstalled: { await model.load() },
           onUninstalled: { await model.load() },
           onOpenPort: openPort)
@@ -519,50 +595,6 @@ struct ContentView: View {
     }
   }
 
-  @ViewBuilder
-  private var activityPane: some View {
-    VStack(spacing: 0) {
-      Divider()
-        .overlay(
-          Color.clear.frame(height: 8).contentShape(Rectangle())
-            .onHover { $0 ? NSCursor.resizeUpDown.push() : NSCursor.pop() }
-            .gesture(
-              DragGesture(minimumDistance: 1, coordinateSpace: .global)
-                .onChanged { v in
-                  dragPreview = min(600, max(80, activityHeight - v.translation.height))
-                }
-                .onEnded { _ in
-                  if let h = dragPreview { activityHeight = h }
-                  dragPreview = nil
-                })
-        )
-        .overlay(alignment: .top) {
-          if let h = dragPreview {
-            Rectangle().fill(Color.accentColor).frame(height: 2)
-              .overlay(alignment: .trailing) {
-                Text("\(Int(h)) pt").font(.caption2).padding(2)
-                  .background(.regularMaterial)
-                  .offset(y: -14)
-              }
-              .offset(y: activityHeight - h)
-          }
-        }
-      ActivityLogView(height: activityHeight)
-    }
-  }
-
-  private var subtitle: String {
-    switch currentMode {
-    case .installed: "\(filtered.count) of \(model.ports.count)"
-    case .available: "\(searchModel.results.count) results"
-    case .outdated: "\(outdatedModel.ports.count) outdated"
-    case .inactive: "\(inactivePorts.count) inactive"
-    case .selections: "\(selectionsModel.groups.count) groups"
-    case .health: "Environment checks"
-    case .configuration: "Settings"
-    }
-  }
-
   private var searchPrompt: String {
     guard searchIsEnabled else { return "" }
     return currentMode == .available
@@ -573,211 +605,6 @@ struct ContentView: View {
     switch currentMode {
     case .installed, .available, .outdated, .inactive: true
     case .selections, .health, .configuration: false
-    }
-  }
-
-  @ViewBuilder private var list: some View {
-    if currentMode == .configuration {
-      ConfigurationView(
-        search: $search,
-        scope: $scope,
-        onSearch: {
-          guard currentMode == .available else { return }
-          Task { await searchModel.search(search, scope: scope) }
-        })
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    } else if currentMode == .health {
-      HealthView()
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    } else {
-      searchableList
-    }
-  }
-
-  private var searchableList: some View {
-    Group {
-      switch currentMode {
-      case .installed: installedList
-      case .available: searchList
-      case .outdated: outdatedList
-      case .inactive: inactiveList
-      case .selections: selectionsList
-      case .health, .configuration: EmptyView()
-      }
-    }
-    .frame(maxWidth: .infinity, maxHeight: .infinity)
-    .onChange(of: scope) {
-      if currentMode == .available, searchModel.hasSearched, !search.isEmpty {
-        Task { await searchModel.search(search, scope: scope) }
-      }
-    }
-    .onSubmit(of: .search) {
-      guard currentMode == .available else { return }
-      Task { await searchModel.search(search, scope: scope) }
-    }
-  }
-
-  @ViewBuilder private var searchList: some View {
-    if let error = searchModel.errorMessage {
-      ContentUnavailableView(
-        "Search failed", systemImage: "exclamationmark.triangle",
-        description: Text(error))
-    } else if searchModel.isSearching {
-      ProgressView("Searching…").frame(maxWidth: .infinity, maxHeight: .infinity)
-    } else if !searchModel.hasSearched {
-      ContentUnavailableView(
-        "Search MacPorts", systemImage: "magnifyingglass",
-        description: Text("Type a name or keyword and press Return."))
-    } else if searchModel.results.isEmpty {
-      ContentUnavailableView.search(text: search)
-    } else {
-      let installed = Set(model.ports.map(\.name))
-      let names =
-        prebuiltOnly
-        ? searchModel.results.filter { searchModel.binary[$0] == .available }
-        : searchModel.results
-      let rows = names.map { SearchRow(name: $0, isInstalled: installed.contains($0)) }
-      Table(rows, selection: $searchSelection) {
-        TableColumn("Name", value: \.name)
-        TableColumn("Pre-built") { row in
-          binaryHint(row.name)
-        }
-        .width(min: 70, ideal: 80, max: 100)
-        TableColumn("Status") { row in
-          searchStatus(row)
-        }
-      }
-    }
-  }
-
-  @ViewBuilder private func binaryHint(_ name: String) -> some View {
-    binaryHint(searchModel.binary[name], pending: searchModel.binaryCheckPending(name))
-  }
-
-  @ViewBuilder private func binaryHint(_ value: BinaryAvailability?, pending: Bool) -> some View {
-    switch value {
-    case .available:
-      Image(systemName: "checkmark.seal.fill").foregroundStyle(.green)
-        .help("A pre-built binary exists for this Mac")
-    case .unavailable:
-      Text("–").foregroundStyle(.secondary).help("No pre-built binary found; builds from source")
-    case .unknown:
-      Text("?").foregroundStyle(.secondary).help("Couldn't reach the archive server")
-    case nil:
-      if pending {
-        ProgressView().controlSize(.mini)
-      } else {
-        Text("")
-      }
-    }
-  }
-
-  @ViewBuilder private func searchStatus(_ row: SearchRow) -> some View {
-    switch activity.progress[row.name] {
-    case .working(let phase):
-      HStack(spacing: 6) {
-        ProgressView().controlSize(.small)
-        Text(phase + "…")
-      }
-      .foregroundStyle(.tint)
-    case .queued:
-      Label("Waiting…", systemImage: "clock").foregroundStyle(.secondary)
-    case .done:
-      Label("Installed", systemImage: "shippingbox.fill").foregroundStyle(.secondary)
-    case nil:
-      Label(
-        row.isInstalled ? "Installed" : "Not installed",
-        systemImage: row.isInstalled ? "shippingbox.fill" : "shippingbox"
-      )
-      .foregroundStyle(.secondary)
-    }
-  }
-
-  @ViewBuilder private var inactiveList: some View {
-    if inactivePorts.isEmpty {
-      ContentUnavailableView(
-        "No inactive ports", systemImage: "archivebox",
-        description: Text("Old versions left behind by upgrades appear here."))
-    } else {
-      Table(inactivePorts, selection: $inactiveSelection, sortOrder: $sortOrder) {
-        TableColumn("Name", value: \.name)
-        TableColumn("Version") { Text("\($0.version)_\($0.revision)") }
-        TableColumn("Variants") {
-          Text($0.variants.map { "+" + $0 }.joined(separator: " ")).foregroundStyle(.secondary)
-        }
-      }
-    }
-  }
-
-  @ViewBuilder private var selectionsList: some View {
-    if let error = selectionsModel.errorMessage {
-      ContentUnavailableView(
-        "Can't read selections", systemImage: "exclamationmark.triangle",
-        description: Text(error))
-    } else if selectionsModel.isLoading && selectionsModel.groups.isEmpty {
-      ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-    } else if selectionsModel.groups.isEmpty {
-      ContentUnavailableView(
-        "No selection groups", systemImage: "arrow.left.arrow.right.circle",
-        description: Text("Install ports such as clang or python to choose between versions."))
-    } else {
-      Table(selectionsModel.groups, selection: $groupSelection) {
-        TableColumn("Group", value: \.name)
-        TableColumn("Selected") {
-          Text($0.selected).foregroundStyle($0.isSet ? .primary : .secondary)
-        }
-      }
-    }
-  }
-
-  @ViewBuilder private var outdatedList: some View {
-    if let error = outdatedModel.errorMessage {
-      ContentUnavailableView(
-        "Can't check for updates", systemImage: "exclamationmark.triangle",
-        description: Text(error))
-    } else if outdatedModel.isLoading && outdatedModel.ports.isEmpty {
-      ProgressView("Checking…").frame(maxWidth: .infinity, maxHeight: .infinity)
-    } else if outdatedModel.ports.isEmpty {
-      ContentUnavailableView(
-        "Everything is up to date", systemImage: "checkmark.circle",
-        description: Text("No installed ports have newer versions."))
-    } else {
-      let rows = outdatedModel.ports.filter {
-        (search.isEmpty || $0.name.localizedCaseInsensitiveContains(search))
-          && (!prebuiltOnly || outdatedModel.binary[$0.name] == .available)
-      }
-      Table(rows, selection: $outdatedSelection) {
-        TableColumn("Name", value: \.name)
-        TableColumn("Installed", value: \.installedVersion)
-        TableColumn("Available", value: \.availableVersion)
-        TableColumn("Pre-built") { row in
-          binaryHint(
-            outdatedModel.binary[row.name],
-            pending: outdatedModel.binary.isEmpty
-              || outdatedModel.binary[row.name] == nil)
-        }
-        .width(min: 70, ideal: 80, max: 100)
-      }
-    }
-  }
-
-  @ViewBuilder private var installedList: some View {
-    if let error = model.errorMessage {
-      ContentUnavailableView(
-        "Can't read ports", systemImage: "exclamationmark.triangle",
-        description: Text(error))
-    } else if model.isLoading && model.ports.isEmpty {
-      ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-    } else {
-      Table(filtered, selection: $selection, sortOrder: $sortOrder) {
-        TableColumn("Name", value: \.name)
-        TableColumn("Version", value: \.version)
-        TableColumn("Variants") { Text($0.variants.map { "+" + $0 }.joined(separator: " ")) }
-        TableColumn("Status") {
-          Text($0.isActive ? "Active" : "Inactive")
-            .foregroundStyle($0.isActive ? .primary : .secondary)
-        }
-      }
     }
   }
 }

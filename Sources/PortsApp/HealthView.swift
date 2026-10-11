@@ -1,32 +1,73 @@
 import PortsKit
 import SwiftUI
 
+/// Health tab results. Owned by `ContentView` so they survive switching tabs:
+/// `port diagnose` takes seconds, so it runs once on the first visit and then
+/// only when asked.
+@MainActor
+@Observable
+final class HealthModel {
+  private(set) var findings: [DiagnosticFinding]?
+  private(set) var registryStatus: RegistryStatus?
+  var failure: String?
+  private(set) var isChecking = false
+  private(set) var isCheckingRegistry = false
+
+  typealias Diagnose = @Sendable () async throws -> [DiagnosticFinding]
+  private let diagnose: Diagnose
+
+  init(diagnose: @escaping Diagnose = { try await PortClient().diagnoseFindings() }) {
+    self.diagnose = diagnose
+  }
+
+  /// Runs the check unless it has already run (or is running).
+  func checkIfNeeded() async {
+    guard findings == nil, failure == nil, !isChecking else { return }
+    await check()
+  }
+
+  func check() async {
+    isChecking = true
+    defer { isChecking = false }
+    do {
+      findings = try await diagnose()
+      failure = nil
+    } catch is CancellationError {
+      // Leaving the tab cancels the first check; the next visit runs it again.
+    } catch {
+      failure = error.localizedDescription
+    }
+  }
+
+  func checkRegistry() async {
+    isCheckingRegistry = true
+    defer { isCheckingRegistry = false }
+    registryStatus = await PortClient().registryStatus()
+  }
+}
+
 /// Runs `port diagnose` and lists what it finds; also launches `port reclaim`
 /// in Terminal.
 struct HealthView: View {
-  @State private var findings: [DiagnosticFinding]?
-  @State private var registryStatus: RegistryStatus?
-  @State private var failure: String?
-  @State private var isChecking = false
-  @State private var isCheckingRegistry = false
+  let model: HealthModel
 
   var body: some View {
     Form {
       Section("Environment check") {
         HStack {
-          Button("Run Diagnose", systemImage: "stethoscope") { Task { await check() } }
-            .disabled(isChecking)
-          if isChecking { ProgressView().controlSize(.small) }
+          Button("Run Diagnose", systemImage: "stethoscope") { Task { await model.check() } }
+            .disabled(model.isChecking)
+          if model.isChecking { ProgressView().controlSize(.small) }
         }
         Section("Registry integrity") {
           HStack {
             Button("Check Registry", systemImage: "checkmark.shield") {
-              Task { await checkRegistry() }
+              Task { await model.checkRegistry() }
             }
-            .disabled(isCheckingRegistry)
-            if isCheckingRegistry { ProgressView().controlSize(.small) }
+            .disabled(model.isCheckingRegistry)
+            if model.isCheckingRegistry { ProgressView().controlSize(.small) }
           }
-          if let registryStatus {
+          if let registryStatus = model.registryStatus {
             LabeledContent("Database") {
               Text(registryStatus.path).textSelection(.enabled)
                 .multilineTextAlignment(.trailing)
@@ -47,9 +88,9 @@ struct HealthView: View {
               .font(.caption).foregroundStyle(.secondary)
           }
         }
-        if let failure {
+        if let failure = model.failure {
           Label(failure, systemImage: "xmark.octagon").foregroundStyle(.red)
-        } else if let findings {
+        } else if let findings = model.findings {
           if findings.isEmpty {
             Label("No problems found.", systemImage: "checkmark.circle.fill").foregroundStyle(
               .green)
@@ -77,7 +118,7 @@ struct HealthView: View {
         Button("Reclaim in Terminal", systemImage: "externaldrive.badge.minus") {
           Task {
             do { try await PortClient().reclaimInTerminal() } catch {
-              failure = error.localizedDescription
+              model.failure = error.localizedDescription
             }
           }
         }
@@ -89,28 +130,6 @@ struct HealthView: View {
       }
     }
     .formStyle(.grouped)
-    .task { if findings == nil { await check() } }
-  }
-
-  private func check() async {
-    isChecking = true
-    defer { isChecking = false }
-    do {
-      findings = try await PortClient().diagnoseFindings()
-      failure = nil
-    } catch { failure = error.localizedDescription }
-  }
-
-  private func checkRegistry() async {
-    isCheckingRegistry = true
-    defer { isCheckingRegistry = false }
-    do {
-      let info = try await PortClient().macPortsInfo()
-      registryStatus = await PortClient().registryStatus(for: info.dataPath)
-    } catch {
-      registryStatus = RegistryStatus(
-        path: "Unknown", exists: false, readable: false,
-        integrity: .unavailable(error.localizedDescription))
-    }
+    .task { await model.checkIfNeeded() }
   }
 }

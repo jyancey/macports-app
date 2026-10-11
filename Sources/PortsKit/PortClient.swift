@@ -221,16 +221,12 @@ public struct PortClient: Sendable {
       throw PortClientError.invalidName(executableURL.path)
     }
     let command = "sudo \(executableURL.path) reclaim"
-    _ = try await Task.detached {
-      let process = Process()
-      process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-      process.arguments = [
+    _ = try await ChildProcess.run(
+      URL(fileURLWithPath: "/usr/bin/osascript"),
+      arguments: [
         "-e", "tell application \"Terminal\" to activate",
         "-e", "tell application \"Terminal\" to do script \"\(command)\"",
-      ]
-      try process.run()
-      process.waitUntilExit()
-    }.value
+      ])
   }
 
   /// Updates MacPorts itself and syncs the ports tree (`port selfupdate`).
@@ -389,50 +385,27 @@ public struct PortClient: Sendable {
   /// `command` must only contain trusted, validated components.
   func runPrivileged(_ command: String) async throws {
     let script = "do shell script \"\(command)\" with administrator privileges"
-    let url = URL(fileURLWithPath: "/usr/bin/osascript")
-    try await Task.detached {
-      let process = Process()
-      process.executableURL = url
-      process.arguments = ["-e", script]
-      let err = Pipe()
-      process.standardError = err
-      process.standardOutput = FileHandle.nullDevice
-      try process.run()
-      let errData = err.fileHandleForReading.readDataToEndOfFile()
-      process.waitUntilExit()
-      guard process.terminationStatus == 0 else {
-        let message = String(decoding: errData, as: UTF8.self)
-        if message.contains("-128") { throw PortClientError.cancelled }
-        throw PortClientError.commandFailed(status: process.terminationStatus, stderr: message)
-      }
-    }.value
+    // Terminating osascript would not stop the root shell it started, so let it finish.
+    let result = try await ChildProcess.run(
+      URL(fileURLWithPath: "/usr/bin/osascript"), arguments: ["-e", script],
+      terminateOnCancel: false)
+    guard result.status == 0 else {
+      let message = String(decoding: result.stderr, as: UTF8.self)
+      if message.contains("-128") { throw PortClientError.cancelled }
+      throw PortClientError.commandFailed(status: result.status, stderr: message)
+    }
   }
 
+  /// Runs `port` and returns its output. Cancelling the calling task
+  /// terminates the process and throws `CancellationError`.
   func run(_ arguments: [String], mergeStderr: Bool = false) async throws -> String {
     guard isAvailable else { throw PortClientError.notInstalled(executableURL.path) }
-    let url = executableURL
-    return try await Task.detached {
-      let process = Process()
-      process.executableURL = url
-      process.arguments = arguments
-      let out = Pipe()
-      let err = Pipe()
-      process.standardOutput = out
-      process.standardError = mergeStderr ? out : err
-      try process.run()
-      // Unused when stderr is merged; leaving it open would keep the drain below waiting forever.
-      if mergeStderr { try? err.fileHandleForWriting.close() }
-      // Drain stderr concurrently so neither pipe buffer can fill and block the process.
-      async let errData = Task.detached { err.fileHandleForReading.readDataToEndOfFile() }.value
-      let outData = out.fileHandleForReading.readDataToEndOfFile()
-      let errBytes = await errData
-      process.waitUntilExit()
-      guard process.terminationStatus == 0 else {
-        throw PortClientError.commandFailed(
-          status: process.terminationStatus,
-          stderr: String(decoding: errBytes, as: UTF8.self))
-      }
-      return String(decoding: outData, as: UTF8.self)
-    }.value
+    let result = try await ChildProcess.run(
+      executableURL, arguments: arguments, mergeStderr: mergeStderr)
+    guard result.status == 0 else {
+      throw PortClientError.commandFailed(
+        status: result.status, stderr: String(decoding: result.stderr, as: UTF8.self))
+    }
+    return String(decoding: result.stdout, as: UTF8.self)
   }
 }
