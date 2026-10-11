@@ -11,17 +11,30 @@ final class InstalledPortsModel {
   private(set) var names: Set<String> = []
   var isLoading = false
   var errorMessage: String?
+  /// True when the last load failed because there is no `port` at the
+  /// configured path.
+  private(set) var isPortMissing = false
+
+  typealias Fetch = @Sendable () async throws -> [InstalledPort]
+  private let fetch: Fetch
+
+  /// The default uses a new client each time, so a changed `port` path
+  /// applies at once.
+  init(fetch: @escaping Fetch = { try await PortClient().installedPorts() }) {
+    self.fetch = fetch
+  }
 
   func load() async {
     isLoading = true
     errorMessage = nil
+    isPortMissing = false
     defer { isLoading = false }
     do {
-      // A new client each time, so a changed `port` path applies at once.
-      ports = try await PortClient().installedPorts()
+      ports = try await fetch()
     } catch {
       ports = []
       errorMessage = error.localizedDescription
+      if case PortClientError.notInstalled = error { isPortMissing = true }
     }
   }
 }
@@ -76,9 +89,19 @@ final class SearchModel {
     }
   }
 
+  /// The last search asked for, so a failed one can be tried again.
+  private var lastRequest: (term: String, scope: SearchScope)?
+
+  /// Runs the last search again.
+  func retry() {
+    guard let lastRequest else { return }
+    search(lastRequest.term, scope: lastRequest.scope)
+  }
+
   /// Starts a search, cancelling (and terminating) any search still running so
   /// an older, slower one can't replace the newer results.
   func search(_ term: String, scope: SearchScope) {
+    lastRequest = (term, scope)
     searchTask?.cancel()
     searchTask = Task { await performSearch(term, scope: scope) }
   }
@@ -573,7 +596,7 @@ struct ContentView: View {
       case .installed:
         InstalledListView(
           model: model, outdated: outdatedModel, actions: actions, filter: search,
-          sortOrder: $sortOrder, selection: $selection
+          sortOrder: $sortOrder, selection: $selection, showConfiguration: { mode = .configuration }
         )
         .searchable(text: $search, placement: .toolbar, prompt: Text(searchPrompt))
         .searchFocused($searchFocused)

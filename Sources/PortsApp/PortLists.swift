@@ -52,6 +52,10 @@ struct InstalledListView: View {
   let filter: String
   @Binding var sortOrder: [KeyPathComparator<InstalledPort>]
   @Binding var selection: InstalledPort.ID?
+  /// Opens the Configuration tab, where the `port` path is set.
+  var showConfiguration: () -> Void = {}
+
+  private static let installPage = URL(string: "https://www.macports.org/install.php")!
 
   var body: some View {
     let rows = model.ports.matching(filter).sorted(using: sortOrder)
@@ -59,9 +63,14 @@ struct InstalledListView: View {
       PaneHeader(title: "Installed Ports", subtitle: "\(rows.count) of \(model.ports.count)")
       Group {
         if let error = model.errorMessage {
-          ContentUnavailableView(
-            "Can't read ports", systemImage: "exclamationmark.triangle",
-            description: Text(error))
+          LoadErrorView(title: "Can't read ports", message: error) {
+            Task { await model.load() }
+          } extraActions: {
+            if model.isPortMissing {
+              Link("Get MacPorts", destination: Self.installPage)
+              Button("Set port Location…", action: showConfiguration)
+            }
+          }
         } else if model.isLoading && model.ports.isEmpty {
           ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
@@ -180,9 +189,7 @@ struct SearchResultsView: View {
 
   @ViewBuilder private var content: some View {
     if let error = searchModel.errorMessage {
-      ContentUnavailableView(
-        "Search failed", systemImage: "exclamationmark.triangle",
-        description: Text(error))
+      LoadErrorView(title: "Search failed", message: error) { searchModel.retry() }
     } else if searchModel.isSearching {
       ProgressView("Searching…").frame(maxWidth: .infinity, maxHeight: .infinity)
     } else if !searchModel.hasSearched {
@@ -256,6 +263,32 @@ struct SearchStatus: View {
   }
 }
 
+/// A load or search error in place of a list, with Try Again and any other
+/// ways to fix it.
+struct LoadErrorView<Extra: View>: View {
+  let title: String
+  let message: String
+  let retry: () -> Void
+  @ViewBuilder var extraActions: Extra
+
+  var body: some View {
+    ContentUnavailableView {
+      Label(title, systemImage: "exclamationmark.triangle")
+    } description: {
+      Text(message)
+    } actions: {
+      Button("Try Again", action: retry)
+      extraActions
+    }
+  }
+}
+
+extension LoadErrorView where Extra == EmptyView {
+  init(title: String, message: String, retry: @escaping () -> Void) {
+    self.init(title: title, message: message, retry: retry) { EmptyView() }
+  }
+}
+
 /// Where an outdated port is in a running upgrade; empty when it isn't part of one.
 struct UpgradeStatus: View {
   let progress: PortProgress?
@@ -320,9 +353,9 @@ struct OutdatedListView: View {
 
   @ViewBuilder private var content: some View {
     if let error = model.errorMessage {
-      ContentUnavailableView(
-        "Can't check for updates", systemImage: "exclamationmark.triangle",
-        description: Text(error))
+      LoadErrorView(title: "Can't check for updates", message: error) {
+        Task { await model.load() }
+      }
     } else if model.isLoading && model.ports.isEmpty {
       ProgressView("Checking…").frame(maxWidth: .infinity, maxHeight: .infinity)
     } else if model.ports.isEmpty {
@@ -381,9 +414,9 @@ struct SelectionsListView: View {
 
   @ViewBuilder private var content: some View {
     if let error = model.errorMessage {
-      ContentUnavailableView(
-        "Can't read selections", systemImage: "exclamationmark.triangle",
-        description: Text(error))
+      LoadErrorView(title: "Can't read selections", message: error) {
+        Task { await model.load() }
+      }
     } else if model.isLoading && model.groups.isEmpty {
       ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
     } else if model.groups.isEmpty {

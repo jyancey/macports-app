@@ -326,7 +326,14 @@ struct PortDetailView: View {
     case .loading:
       ProgressView().controlSize(.small)
     case .failed(let message):
-      Label(message, systemImage: "exclamationmark.triangle").foregroundStyle(.secondary)
+      HStack {
+        Label(message, systemImage: "exclamationmark.triangle").foregroundStyle(.secondary)
+        Button("Try Again") {
+          Task {
+            await model.load(name, isInstalled: showsInstalledContents, cache: detailCache)
+          }
+        }
+      }
     case .loaded(let info):
       VStack(alignment: .leading, spacing: 12) {
         if !info.description.isEmpty {
@@ -375,7 +382,10 @@ struct PortDetailView: View {
               ForEach(nodes) { TreeRow(node: $0, onOpenPort: onOpenPort) }
             }
           case .failed(let message):
-            Label(message, systemImage: "exclamationmark.triangle").foregroundStyle(.secondary)
+            HStack {
+              Label(message, systemImage: "exclamationmark.triangle").foregroundStyle(.secondary)
+              Button("Try Again") { Task { await model.loadTree(name, cache: detailCache) } }
+            }
           case .loading, nil:
             HStack(spacing: 6) {
               ProgressView().controlSize(.small)
