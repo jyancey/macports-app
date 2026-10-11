@@ -40,6 +40,13 @@ Early development. Currently implemented:
 - [x] Context menus on the port tables (copy name or install command, plus the tab's actions); ⌘C copies names
 - [x] Multi-select on Outdated and Inactive to upgrade or remove several ports with one authorization prompt
 - [x] Stop a running command from the Activity pane (interrupts `port` and the builds it started)
+- [x] Activity status in words with a running timer; failures always open the pane; Remove All asks first
+- [x] Per-port status column during upgrades on the Outdated tab
+- [x] Sidebar badges for Outdated, Inactive and Health problems
+- [x] Try Again on error screens, with help when MacPorts can't be found
+- [x] Dock icon bounces when a command ends while the app is in the background
+- [x] Change `port select` versions straight from the Selections list
+- [x] Resizable list and detail panes
 
 ## App icon
 
