@@ -277,7 +277,12 @@ struct ContentView: View {
   var body: some View {
     split
     .environment(detailCache)
-    .task { await model.load() }
+    .task {
+      await model.load()
+      // Load the outdated list up front so its tab opens at once and the
+      // sidebar can show how many updates there are.
+      await outdatedModel.loadIfStale()
+    }
     .task(id: outdatedModel.ports.map(\.availableVersion) + [String(model.ports.count)]) {
       outdatedModel.checkBinaries(installed: model.ports)
     }
@@ -366,7 +371,9 @@ struct ContentView: View {
       if isSidebarVisible {
         VStack(spacing: 0) {
           List(BrowseMode.allCases, selection: $mode) { item in
-            Label(item.rawValue, systemImage: item.symbol).tag(item)
+            Label(item.rawValue, systemImage: item.symbol)
+              .badge(item == .outdated ? outdatedModel.ports.count : 0)
+              .tag(item)
           }
           .listStyle(.sidebar)
         }
