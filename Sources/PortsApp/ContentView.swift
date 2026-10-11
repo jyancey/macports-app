@@ -62,23 +62,10 @@ final class SearchModel {
     binary = [:]
     let binaryHint = self.binaryHint
     binaryTask = Task {
-      let batch = Array(names.prefix(Self.binaryCheckLimit))
-      await withTaskGroup(of: (String, BinaryAvailability).self) { group in
-        var iterator = batch.makeIterator()
-        func addNext() {
-          if let name = iterator.next() {
-            group.addTask { (name, await binaryHint(name)) }
-          }
-        }
-        for _ in 0..<6 { addNext() }
-        while let (name, result) = await group.next() {
-          if Task.isCancelled {
-            group.cancelAll()
-            return
-          }
-          binary[name] = result
-          addNext()
-        }
+      await checkBinariesInBatches(Array(names.prefix(Self.binaryCheckLimit))) { name in
+        (name, await binaryHint(name))
+      } deliver: { batch in
+        binary.merge(batch) { $1 }
       }
     }
   }
@@ -180,31 +167,18 @@ final class OutdatedModel {
       uniquingKeysWith: { first, _ in first })
     let batch = ports
     binaryTask = Task {
-      await withTaskGroup(of: (String, BinaryAvailability).self) { group in
-        var iterator = batch.makeIterator()
-        func addNext() {
-          guard let port = iterator.next() else { return }
-          let parts = port.availableVersion.split(separator: "_", maxSplits: 1)
-          let version = parts.first.map(String.init) ?? port.availableVersion
-          let revision = parts.count > 1 ? Int(parts[1]) ?? 0 : 0
-          let wanted = variants[port.name] ?? []
-          group.addTask {
-            (
-              port.name,
-              await BinaryArchive.availability(
-                name: port.name, version: version, revision: revision, variants: wanted)
-            )
-          }
-        }
-        for _ in 0..<6 { addNext() }
-        while let (name, result) = await group.next() {
-          if Task.isCancelled {
-            group.cancelAll()
-            return
-          }
-          binary[name] = result
-          addNext()
-        }
+      await checkBinariesInBatches(batch) { port in
+        let parts = port.availableVersion.split(separator: "_", maxSplits: 1)
+        let version = parts.first.map(String.init) ?? port.availableVersion
+        let revision = parts.count > 1 ? Int(parts[1]) ?? 0 : 0
+        return (
+          port.name,
+          await BinaryArchive.availability(
+            name: port.name, version: version, revision: revision,
+            variants: variants[port.name] ?? [])
+        )
+      } deliver: { batch in
+        binary.merge(batch) { $1 }
       }
     }
   }
