@@ -10,44 +10,124 @@ final class PortDetailModel {
     case failed(String)
   }
 
+  typealias BinaryCheck =
+    @Sendable (_ name: String, _ version: String, _ revision: Int, _ variants: [String]) async ->
+    BinaryAvailability
+
   var info: Loadable<PortInfo> = .loading
   var files: Loadable<[String]> = .loading
   var dependents: Loadable<[String]> = .loading
-  var tree: Loadable<[PortInfoParser.DependencyNode]> = .loading
+  /// The full recursive tree of `treeName`; nil until requested. `port rdeps`
+  /// can take tens of seconds, so it only runs when the tree is expanded.
+  private(set) var tree: Loadable<[PortInfoParser.DependencyNode]>?
+  private(set) var treeName: String?
   /// Whether a pre-built archive exists for the default variants; nil until checked.
   var binary: BinaryAvailability?
 
-  private let client = PortClient()
+  private let source: any PortDetailSource
+  private let binaryCheck: BinaryCheck
+  private let debounce: Duration
 
-  func load(_ name: String) async {
+  /// `debounce` delays the first query so that moving quickly through a list
+  /// doesn't start `port` for every row passed over.
+  init(
+    source: any PortDetailSource = PortClient(),
+    binaryCheck: @escaping BinaryCheck = BinaryArchive.availability,
+    debounce: Duration = .milliseconds(120)
+  ) {
+    self.source = source
+    self.binaryCheck = binaryCheck
+    self.debounce = debounce
+  }
+
+  private enum Piece: Sendable {
+    case info(Loadable<PortInfo>)
+    case files(Loadable<[String]>)
+    case dependents(Loadable<[String]>)
+    case variants([PortVariant]?)
+    case binary(BinaryAvailability)
+  }
+
+  /// Loads everything but the dependency tree, showing each result as soon as
+  /// it arrives. Files and dependents are only queried for installed ports.
+  func load(_ name: String, isInstalled: Bool) async {
     info = .loading
-    files = .loading
-    dependents = .loading
-    tree = .loading
+    files = isInstalled ? .loading : .loaded([])
+    dependents = isInstalled ? .loading : .loaded([])
     binary = nil
-    async let i = capture { try await self.client.info(for: name) }
-    async let f = capture { try await self.client.contents(of: name) }
-    async let d = capture { try await self.client.dependents(of: name) }
-    async let t = capture { try await self.client.dependencyTree(of: name) }
-    let (infoResult, filesResult, dependentsResult, treeResult) = await (i, f, d, t)
+    if debounce > .zero { try? await Task.sleep(for: debounce) }
     guard !Task.isCancelled else { return }
-    info = infoResult
-    files = filesResult
-    dependents = dependentsResult
-    tree = treeResult
-    if case .loaded(let info) = infoResult {
-      let defaults = ((try? await client.variants(of: name)) ?? []).filter(\.isDefault).map(\.name)
-      let result = await BinaryArchive.availability(
-        name: name, version: info.version, revision: info.revision, variants: defaults)
-      guard !Task.isCancelled else { return }
-      binary = result
+
+    let source = self.source
+    let binaryCheck = self.binaryCheck
+    await withTaskGroup(of: Piece.self) { group in
+      group.addTask { .info(await Self.capture { try await source.info(for: name) }) }
+      group.addTask { .variants(try? await source.variants(of: name)) }
+      if isInstalled {
+        group.addTask { .files(await Self.capture { try await source.contents(of: name) }) }
+        group.addTask {
+          .dependents(await Self.capture { try await source.dependents(of: name) })
+        }
+      }
+      // The binary check starts once both the version (info) and the default
+      // variants are known, without waiting for files or dependents.
+      var loadedInfo: PortInfo?
+      var defaults: [String]?
+      var checkStarted = false
+      while let piece = await group.next() {
+        guard !Task.isCancelled else {
+          group.cancelAll()
+          return
+        }
+        switch piece {
+        case .info(let result):
+          info = result
+          if case .loaded(let value) = result { loadedInfo = value }
+        case .files(let result): files = result
+        case .dependents(let result): dependents = result
+        case .variants(let found): defaults = (found ?? []).filter(\.isDefault).map(\.name)
+        case .binary(let result): binary = result
+        }
+        if !checkStarted, let info = loadedInfo, let defaults {
+          checkStarted = true
+          group.addTask {
+            .binary(await binaryCheck(name, info.version, info.revision, defaults))
+          }
+        }
+      }
     }
   }
 
-  private func capture<T: Sendable>(_ work: @Sendable () async throws -> T) async -> Loadable<T> {
+  /// The dependency tree, if it belongs to `name`.
+  func tree(for name: String) -> Loadable<[PortInfoParser.DependencyNode]>? {
+    treeName == name ? tree : nil
+  }
+
+  /// Loads the dependency tree of `name` unless it is loaded already.
+  func loadTree(_ name: String) async {
+    if treeName == name, case .loaded = tree { return }
+    treeRequest += 1
+    let request = treeRequest
+    treeName = name
+    tree = .loading
+    let source = self.source
+    let result = await Self.capture { try await source.dependencyTree(of: name) }
+    // A newer request owns the tree now. Collapsing the tree cancels the
+    // query; leave it to be requested again.
+    guard request == treeRequest else { return }
+    tree = Task.isCancelled ? nil : result
+  }
+
+  private var treeRequest = 0
+
+  nonisolated private static func capture<T: Sendable>(
+    _ work: @Sendable () async throws -> T
+  ) async -> Loadable<T> {
     do { return .loaded(try await work()) } catch { return .failed(error.localizedDescription) }
   }
 }
+
+extension PortDetailModel.Loadable: Equatable where T: Equatable {}
 
 struct PortDetailView: View {
   let name: String
@@ -68,6 +148,18 @@ struct PortDetailView: View {
   var onOpenPort: (String) -> Void = { _ in }
   @Environment(ActivityLog.self) private var activity
   @State private var model = PortDetailModel()
+  /// The port whose dependency tree is expanded; showing another port collapses it.
+  @State private var expandedTree: String?
+
+  /// Installing flips `isInstalled`, which reloads to pick up the files.
+  private struct LoadKey: Hashable {
+    let name: String
+    let isInstalled: Bool
+  }
+
+  private var treeExpanded: Binding<Bool> {
+    Binding(get: { expandedTree == name }, set: { expandedTree = $0 ? name : nil })
+  }
 
   var body: some View {
     ScrollView {
@@ -81,7 +173,13 @@ struct PortDetailView: View {
       .padding(20)
       .frame(maxWidth: .infinity, alignment: .leading)
     }
-    .task(id: name) { await model.load(name) }
+    .task(id: LoadKey(name: name, isInstalled: isInstalled)) {
+      await model.load(name, isInstalled: isInstalled)
+    }
+    // Collapsing the tree or showing another port cancels `port rdeps`.
+    .task(id: expandedTree == name ? name : nil) {
+      if expandedTree == name { await model.loadTree(name) }
+    }
     .sheet(isPresented: $showInstallOptions) {
       InstallOptionsView(name: name) { install(flags: $0) }
     }
@@ -195,10 +293,7 @@ struct PortDetailView: View {
       let ok = await activity.run(title, name: name) { out in
         try await client.install(name, variantFlags: flags, onOutput: out)
       }
-      if ok {
-        await onInstalled()
-        await model.load(name)
-      }
+      if ok { await onInstalled() }
     }
   }
 
@@ -243,13 +338,34 @@ struct PortDetailView: View {
     }
   }
 
+  /// Shown for ports with dependencies; `port rdeps` runs only while expanded.
   @ViewBuilder private var treeSection: some View {
-    if case .loaded(let nodes) = model.tree, !nodes.isEmpty {
-      DisclosureGroup("Full dependency tree (\(nodes.count) direct)") {
-        VStack(alignment: .leading, spacing: 2) {
-          ForEach(nodes) { TreeRow(node: $0, onOpenPort: onOpenPort) }
+    if case .loaded(let info) = model.info,
+      !(info.libDependencies + info.buildDependencies + info.runDependencies).isEmpty
+    {
+      DisclosureGroup(isExpanded: treeExpanded) {
+        Group {
+          switch model.tree(for: name) {
+          case .loaded(let nodes):
+            VStack(alignment: .leading, spacing: 2) {
+              ForEach(nodes) { TreeRow(node: $0, onOpenPort: onOpenPort) }
+            }
+          case .failed(let message):
+            Label(message, systemImage: "exclamationmark.triangle").foregroundStyle(.secondary)
+          case .loading, nil:
+            HStack(spacing: 6) {
+              ProgressView().controlSize(.small)
+              Text("Resolving dependencies… this can take a while.").foregroundStyle(.secondary)
+            }
+          }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+      } label: {
+        if case .loaded(let nodes) = model.tree(for: name) {
+          Text("Full dependency tree (\(nodes.count) direct)")
+        } else {
+          Text("Full dependency tree")
+        }
       }
     }
   }

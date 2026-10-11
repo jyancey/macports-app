@@ -87,6 +87,12 @@ public enum PortInfoParser {
     public let id: Int
     public let name: String
     public var children: [DependencyNode]?
+
+    public init(id: Int, name: String, children: [DependencyNode]? = nil) {
+      self.id = id
+      self.name = name
+      self.children = children
+    }
   }
 
   /// Parses `port -q rdeps` (two-space indentation per level) into a forest.
@@ -128,3 +134,15 @@ public enum PortInfoParser {
     Array(Set(parseDependents(output))).sorted()
   }
 }
+
+/// The `port` queries behind the port detail pane. `PortClient` runs the real
+/// commands; tests substitute their own.
+public protocol PortDetailSource: Sendable {
+  func info(for name: String) async throws -> PortInfo
+  func contents(of name: String) async throws -> [String]
+  func dependents(of name: String) async throws -> [String]
+  func dependencyTree(of name: String) async throws -> [PortInfoParser.DependencyNode]
+  func variants(of name: String) async throws -> [PortVariant]
+}
+
+extension PortClient: PortDetailSource {}
