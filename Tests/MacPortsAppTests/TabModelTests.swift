@@ -236,3 +236,86 @@ extension Gates {
     #expect(model.update(for: other) == nil)
   }
 }
+
+@MainActor
+@Suite struct HealthSummaryTests {
+  struct Failure: Error, LocalizedError {
+    var errorDescription: String? { "Terminal is not available" }
+  }
+
+  func finding(_ severity: DiagnosticFinding.Severity, _ message: String) -> DiagnosticFinding {
+    DiagnosticFinding(severity: severity, message: message)
+  }
+
+  @Test func errorsComeFirstAndAreCounted() async {
+    let found = [finding(.warning, "w1"), finding(.error, "e1"), finding(.warning, "w2")]
+    let model = HealthModel(diagnose: { found })
+    #expect(model.summary == nil)
+    await model.check()
+    #expect(model.sortedFindings.map(\.message) == ["e1", "w1", "w2"])
+    #expect(model.summary == "1 error, 2 warnings")
+  }
+
+  @Test func noFindingsHasNoSummary() async {
+    let model = HealthModel(diagnose: { [] })
+    await model.check()
+    #expect(model.summary == nil)
+  }
+
+  @Test func reclaimFailureDoesNotReplaceTheDiagnoseResult() async {
+    let model = HealthModel(diagnose: { [] }, reclaim: { throw Failure() })
+    await model.check()
+    await model.reclaimInTerminal()
+    #expect(model.reclaimFailure == "Terminal is not available")
+    #expect(model.failure == nil)
+    #expect(model.findings == [])
+  }
+}
+
+@MainActor
+@Suite(.timeLimit(.minutes(1))) struct SelectionChoiceTests {
+  let gates = Gates()
+
+  /// `select` waits on the gate "set"; each load reports what was last set.
+  func makeModel() -> SelectionsModel {
+    final class Current: @unchecked Sendable { var value = "python311" }
+    let current = Current()
+    let gates = gates
+    return SelectionsModel(
+      fetch: {
+        [
+          PortSelectGroup(
+            name: "python", selected: current.value, options: ["python311", "python312", "none"])
+        ]
+      },
+      setSelection: { _, option, _ in
+        try await gates.pass("set")
+        current.value = option
+      })
+  }
+
+  @Test func choiceShowsAtOnceAndStaysAfterTheReload() async throws {
+    let model = makeModel()
+    let log = ActivityLog {}
+    await model.load()
+    let group = try #require(model.groups.first)
+    let select = Task { await model.select("python312", in: group, activity: log) }
+    #expect(try await gates.waitForCall("set"))
+    #expect(model.shownSelection(group) == "python312")
+    await gates.open("set")
+    await select.value
+    #expect(model.pending.isEmpty)
+    #expect(model.groups.first?.selected == "python312")
+    #expect(log.chunks.joined().hasPrefix("$ sudo port select --set python python312\n"))
+  }
+
+  @Test func choosingTheCurrentOptionDoesNothing() async throws {
+    let model = makeModel()
+    let log = ActivityLog {}
+    await model.load()
+    let group = try #require(model.groups.first)
+    await model.select("python311", in: group, activity: log)
+    #expect(await gates.calls.isEmpty)
+    #expect(log.isEmpty)
+  }
+}

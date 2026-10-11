@@ -179,6 +179,24 @@ actor FakePortCommands: PortCommandRunner {
     #expect(await runner.calls == ["uninstall inactive"])
   }
 
+  @Test func progressTextFollowsThePortOutput() async throws {
+    let actions = makeActions()
+    let gates = Gates()
+    #expect(actions.progressText(for: "zlib", fallback: "Working…") == "Working…")
+    let run = Task {
+      await log.run("sudo port upgrade zlib", name: "zlib") { out in
+        out("--->  Computing dependencies for zlib\n--->  Building zlib\n")
+        try await gates.pass("built")
+      }
+    }
+    #expect(try await until { log.progress["zlib"] != nil })
+    #expect(actions.progressText(for: "zlib", fallback: "Working…") == "Building…")
+    #expect(actions.progressText(for: "xz", fallback: "Working…") == "Working…")
+    await gates.open("built")
+    await run.value
+    #expect(actions.progressText(for: "zlib", fallback: "Working…") == "Working…")
+  }
+
   @Test func nothingStartsWhileACommandIsRunning() async throws {
     let actions = makeActions()
     let gates = Gates()

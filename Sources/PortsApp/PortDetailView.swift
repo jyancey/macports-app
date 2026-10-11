@@ -251,8 +251,8 @@ struct PortDetailView: View {
   @ViewBuilder private var binaryBadge: some View {
     switch model.binary {
     case .available:
-      Label("Pre-built binary available", systemImage: "checkmark.seal.fill")
-        .font(.caption).foregroundStyle(.green)
+      StatusLabel("Pre-built binary available", systemImage: "checkmark.seal.fill", color: .green)
+        .font(.caption)
         .help("MacPorts can download a pre-built archive for this Mac instead of compiling.")
     case .unavailable:
       Label("Builds from source", systemImage: "hammer")
@@ -277,8 +277,9 @@ struct PortDetailView: View {
     if actions.isWorking(on: name) {
       HStack(spacing: 6) {
         ProgressView().controlSize(.small)
-        Text("Working…").foregroundStyle(.secondary)
+        Text(actions.progressText(for: name, fallback: "Working…")).foregroundStyle(.secondary)
       }
+      .accessibilityElement(children: .combine)
     } else {
       Button("Activate", systemImage: "arrow.uturn.backward.circle") {
         actions.requestActivate(port)
@@ -298,8 +299,9 @@ struct PortDetailView: View {
     if actions.isWorking(on: name) {
       HStack(spacing: 6) {
         ProgressView().controlSize(.small)
-        Text("Working…").foregroundStyle(.secondary)
+        Text(actions.progressText(for: name, fallback: "Working…")).foregroundStyle(.secondary)
       }
+      .accessibilityElement(children: .combine)
     } else {
       Button("Uninstall", systemImage: "trash", role: .destructive) {
         actions.requestUninstall(name)
@@ -312,8 +314,9 @@ struct PortDetailView: View {
     if actions.isWorking(on: name) {
       HStack(spacing: 6) {
         ProgressView().controlSize(.small)
-        Text("Installing…").foregroundStyle(.secondary)
+        Text(actions.progressText(for: name, fallback: "Installing…")).foregroundStyle(.secondary)
       }
+      .accessibilityElement(children: .combine)
     } else {
       Button("Install", systemImage: "arrow.down.circle") { Task { await actions.install(name) } }
         .buttonStyle(.borderedProminent)
@@ -324,9 +327,16 @@ struct PortDetailView: View {
   @ViewBuilder private var infoSection: some View {
     switch model.info {
     case .loading:
-      ProgressView().controlSize(.small)
+      ProgressView().controlSize(.small).accessibilityLabel("Loading port information")
     case .failed(let message):
-      Label(message, systemImage: "exclamationmark.triangle").foregroundStyle(.secondary)
+      HStack {
+        Label(message, systemImage: "exclamationmark.triangle").foregroundStyle(.secondary)
+        Button("Try Again") {
+          Task {
+            await model.load(name, isInstalled: showsInstalledContents, cache: detailCache)
+          }
+        }
+      }
     case .loaded(let info):
       VStack(alignment: .leading, spacing: 12) {
         if !info.description.isEmpty {
@@ -375,12 +385,16 @@ struct PortDetailView: View {
               ForEach(nodes) { TreeRow(node: $0, onOpenPort: onOpenPort) }
             }
           case .failed(let message):
-            Label(message, systemImage: "exclamationmark.triangle").foregroundStyle(.secondary)
+            HStack {
+              Label(message, systemImage: "exclamationmark.triangle").foregroundStyle(.secondary)
+              Button("Try Again") { Task { await model.loadTree(name, cache: detailCache) } }
+            }
           case .loading, nil:
             HStack(spacing: 6) {
               ProgressView().controlSize(.small)
               Text("Resolving dependencies… this can take a while.").foregroundStyle(.secondary)
             }
+            .accessibilityElement(children: .combine)
           }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -511,16 +525,13 @@ struct InstallOptionsView: View {
   @ViewBuilder private var buildNotice: some View {
     if variants != nil {
       if customized {
-        Label(
+        StatusLabel(
           "Non-default variants are built from source, which can take a while.",
-          systemImage: "exclamationmark.triangle.fill"
-        )
-        .foregroundStyle(.orange)
+          systemImage: "exclamationmark.triangle.fill", color: .orange)
       } else if binary == .available {
-        Label(
+        StatusLabel(
           "A pre-built binary is available, so this installs quickly.",
-          systemImage: "checkmark.seal.fill"
-        ).foregroundStyle(.green)
+          systemImage: "checkmark.seal.fill", color: .green)
       } else if binary == .unavailable {
         Label(
           "No pre-built binary was found for this Mac; it will be built from source.",
@@ -559,7 +570,7 @@ struct InstallOptionsView: View {
         .frame(height: 280)
       }
     } else {
-      ProgressView().controlSize(.small)
+      ProgressView().controlSize(.small).accessibilityLabel("Loading variants")
     }
   }
 

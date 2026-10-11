@@ -79,6 +79,22 @@ import Testing
     #expect(log.startedAt == nil)
   }
 
+  @Test func attentionIsRequestedWhenACommandEndsOnItsOwn() async throws {
+    final class Count { var value = 0 }
+    let count = Count()
+    let log = ActivityLog { count.value += 1 }
+    await run(log, ["ok\n"])
+    await run(log, [], failing: true)
+    #expect(count.value == 2)
+    // Not when the user cancelled the password prompt or pressed Stop.
+    await log.run("port x", name: "x") { _ in throw PortClientError.cancelled }
+    let stopped = Task { await runUntilStopped(log) }
+    #expect(try await until { log.canStop })
+    log.requestStop()
+    await stopped.value
+    #expect(count.value == 2)
+  }
+
   // MARK: Stop
 
   /// A command that runs until it is asked to stop, then fails the way an

@@ -11,17 +11,30 @@ final class InstalledPortsModel {
   private(set) var names: Set<String> = []
   var isLoading = false
   var errorMessage: String?
+  /// True when the last load failed because there is no `port` at the
+  /// configured path.
+  private(set) var isPortMissing = false
+
+  typealias Fetch = @Sendable () async throws -> [InstalledPort]
+  private let fetch: Fetch
+
+  /// The default uses a new client each time, so a changed `port` path
+  /// applies at once.
+  init(fetch: @escaping Fetch = { try await PortClient().installedPorts() }) {
+    self.fetch = fetch
+  }
 
   func load() async {
     isLoading = true
     errorMessage = nil
+    isPortMissing = false
     defer { isLoading = false }
     do {
-      // A new client each time, so a changed `port` path applies at once.
-      ports = try await PortClient().installedPorts()
+      ports = try await fetch()
     } catch {
       ports = []
       errorMessage = error.localizedDescription
+      if case PortClientError.notInstalled = error { isPortMissing = true }
     }
   }
 }
@@ -76,9 +89,19 @@ final class SearchModel {
     }
   }
 
+  /// The last search asked for, so a failed one can be tried again.
+  private var lastRequest: (term: String, scope: SearchScope)?
+
+  /// Runs the last search again.
+  func retry() {
+    guard let lastRequest else { return }
+    search(lastRequest.term, scope: lastRequest.scope)
+  }
+
   /// Starts a search, cancelling (and terminating) any search still running so
   /// an older, slower one can't replace the newer results.
   func search(_ term: String, scope: SearchScope) {
+    lastRequest = (term, scope)
     searchTask?.cancel()
     searchTask = Task { await performSearch(term, scope: scope) }
   }
@@ -112,12 +135,44 @@ final class SelectionsModel {
   var isLoading = false
   var errorMessage: String?
 
+  /// Choices made but not yet shown by a reload, by group name, so a picker
+  /// doesn't snap back while the command runs.
+  private(set) var pending: [String: String] = [:]
+
   typealias Fetch = @Sendable () async throws -> [PortSelectGroup]
+  typealias SetSelection =
+    @Sendable (
+      _ group: String, _ option: String, _ onOutput: @escaping @MainActor @Sendable (String) -> Void
+    ) async throws -> Void
   private let fetch: Fetch
+  private let setSelection: SetSelection
   @ObservationIgnored private var freshness = Freshness()
 
-  init(fetch: @escaping Fetch = { try await PortClient().selections() }) {
+  init(
+    fetch: @escaping Fetch = { try await PortClient().selections() },
+    setSelection: @escaping SetSelection = { group, option, out in
+      try await PortClient().setSelection(group: group, option: option, onOutput: out)
+    }
+  ) {
     self.fetch = fetch
+    self.setSelection = setSelection
+  }
+
+  /// The option to show for `group`: a pending choice, else the current one.
+  func shownSelection(_ group: PortSelectGroup) -> String {
+    pending[group.name] ?? group.selected
+  }
+
+  /// Selects `option` ("none" unsets) through the Activity log, then reloads.
+  func select(_ option: String, in group: PortSelectGroup, activity: ActivityLog) async {
+    guard !activity.isRunning, option != shownSelection(group) else { return }
+    pending[group.name] = option
+    defer { pending[group.name] = nil }
+    let setSelection = self.setSelection
+    await activity.run("sudo port select --set \(group.name) \(option)", name: group.name) { out in
+      try await setSelection(group.name, option, out)
+    }
+    await load()
   }
 
   /// Loads unless the groups were loaded recently and nothing has changed since.
@@ -488,7 +543,7 @@ struct ContentView: View {
         VStack(spacing: 0) {
           List(BrowseMode.allCases, selection: $mode) { item in
             Label(item.rawValue, systemImage: item.symbol)
-              .badge(item == .outdated ? outdatedModel.ports.count : 0)
+              .badge(badgeCount(item))
               .tag(item)
           }
           .listStyle(.sidebar)
@@ -503,14 +558,13 @@ struct ContentView: View {
           if isSinglePaneMode {
             mainPane
           } else {
-            HStack(spacing: 0) {
+            // An AppKit split view, so the divider between the list and the
+            // detail can be dragged.
+            HSplitView {
               mainPane
                 .frame(minWidth: 380, idealWidth: 460, maxHeight: .infinity)
-
-              Divider()
-
               detailPane
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
             }
           }
         }
@@ -563,6 +617,7 @@ struct ContentView: View {
       ToolbarItem {
         Button("Refresh", systemImage: "arrow.clockwise") { Task { await refreshAll() } }
           .disabled(model.isLoading || outdatedModel.isLoading)
+          .help("Reload the port lists (⌘R)")
       }
     }
   }
@@ -573,7 +628,7 @@ struct ContentView: View {
       case .installed:
         InstalledListView(
           model: model, outdated: outdatedModel, actions: actions, filter: search,
-          sortOrder: $sortOrder, selection: $selection
+          sortOrder: $sortOrder, selection: $selection, showConfiguration: { mode = .configuration }
         )
         .searchable(text: $search, placement: .toolbar, prompt: Text(searchPrompt))
         .searchFocused($searchFocused)
@@ -600,7 +655,7 @@ struct ContentView: View {
         .searchable(text: $search, placement: .toolbar, prompt: Text(searchPrompt))
         .searchFocused($searchFocused)
       case .selections:
-        SelectionsListView(model: selectionsModel, selection: $groupSelection)
+        SelectionsListView(model: selectionsModel, activity: activity, selection: $groupSelection)
       case .health:
         VStack(spacing: 0) {
           PaneHeader(title: "Health", subtitle: "Environment checks")
@@ -686,7 +741,7 @@ struct ContentView: View {
       } else if currentMode == .selections,
         let group = selectionsModel.groups.first(where: { $0.id == groupSelection })
       {
-        SelectionDetailView(group: group) { await selectionsModel.load() }
+        SelectionDetailView(group: group, model: selectionsModel)
       } else if currentMode == .health {
         ContentUnavailableView(
           "Health", systemImage: "stethoscope",
@@ -728,6 +783,16 @@ struct ContentView: View {
     case .outdated: "Choose an outdated port to see its update."
     case .inactive: "Choose an inactive version to activate or remove it."
     default: "Search for a port, then choose one to see its details."
+    }
+  }
+
+  /// The number shown beside a sidebar item; zero shows no badge.
+  private func badgeCount(_ item: BrowseMode) -> Int {
+    switch item {
+    case .outdated: outdatedModel.ports.count
+    case .inactive: model.ports.count { !$0.isActive }
+    case .health: healthModel.findings?.count ?? 0
+    default: 0
     }
   }
 

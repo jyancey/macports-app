@@ -111,6 +111,16 @@ final class PortActions {
   /// Whether the running command was started for `name`.
   func isWorking(on name: String) -> Bool { workingNames.contains(name) }
 
+  /// What the running command is doing to `name` ("Building…"), for the
+  /// detail pane; `fallback` until its output says.
+  func progressText(for name: String, fallback: String) -> String {
+    switch activity.progress[name] {
+    case .working(let phase): phase + "…"
+    case .queued: "Waiting…"
+    case .done, nil: fallback
+    }
+  }
+
   /// Whether a new command can start for `name` right now.
   func canStart(_ name: String) -> Bool { !activity.isRunning && checkingVariants != name }
 

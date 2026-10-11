@@ -69,15 +69,15 @@ struct ConfigurationView: View {
 
   var body: some View {
     Form {
-      Section("Activity") {
+      Section {
         Toggle("Open Activity pane when a command starts", isOn: $autoOpen)
         Toggle("Verbose output", isOn: $verbose)
+      } header: {
+        Text("Activity")
+      } footer: {
         Text(
-          "Passes -v to port so the Activity pane shows full configure and build output. "
-            + "Turn it off for faster, quieter runs."
-        )
-        .font(.caption)
-        .foregroundStyle(.secondary)
+          "Verbose output passes -v to port so the Activity pane shows full configure and build "
+            + "output. Turn it off for faster, quieter runs.")
       }
       Section("MacPorts") {
         pathEditor
@@ -87,12 +87,14 @@ struct ConfigurationView: View {
           row("Data directory", info.dataPath)
           row("Registry database", info.registryPath)
           LabeledContent("Registry status") {
-            Label(
-              model.registryReadable ? "Present and readable" : "Missing or unreadable",
-              systemImage: model.registryReadable
-                ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
-            )
-            .foregroundStyle(model.registryReadable ? .green : .orange)
+            if model.registryReadable {
+              StatusLabel(
+                "Present and readable", systemImage: "checkmark.circle.fill", color: .green)
+            } else {
+              StatusLabel(
+                "Missing or unreadable", systemImage: "exclamationmark.triangle.fill",
+                color: .orange)
+            }
           }
           row("Applications", info.applicationsDir)
           row("Installed ports", "\(installedCount)")
@@ -107,16 +109,17 @@ struct ConfigurationView: View {
                 Button("Remove source", systemImage: "minus.circle") { sourceToRemove = src }
                   .labelStyle(.iconOnly).buttonStyle(.borderless)
                   .disabled(info.sources.count < 2 || activity.isRunning)
+                  .help(removeSourceHelp(sourceCount: info.sources.count))
               }
             }
           }
         } else if let failure {
           Text(failure).foregroundStyle(.secondary)
         } else {
-          ProgressView()
+          ProgressView("Reading MacPorts settings…")
         }
       }
-      Section("Add a source") {
+      Section {
         HStack {
           TextField("", text: $newSource, prompt: Text("rsync://, https://, or file:///path"))
             .textFieldStyle(.roundedBorder)
@@ -125,16 +128,16 @@ struct ConfigurationView: View {
             .disabled(!MacPortsInfo.isValidSourceURL(trimmedSource) || activity.isRunning)
         }
         if let sourceError {
-          Label(sourceError, systemImage: "exclamationmark.triangle.fill")
-            .font(.caption).foregroundStyle(.orange)
+          StatusLabel(sourceError, systemImage: "exclamationmark.triangle.fill", color: .orange)
+            .font(.caption)
         }
+      } header: {
+        Text("Add a source")
+      } footer: {
         Text(
           "Adds a ports tree to sources.conf (uses macOS administrator authorization). "
             + "Local file:/// sources are searched first so they override remote ports; "
-            + "run portindex in a local tree before use. Sync afterwards to fetch remote sources."
-        )
-        .font(.caption)
-        .foregroundStyle(.secondary)
+            + "run portindex in a local tree before use. Sync afterwards to fetch remote sources.")
       }
     }
     .formStyle(.grouped)
@@ -170,6 +173,12 @@ struct ConfigurationView: View {
         .disabled(activity.isRunning)
       }
     }
+  }
+
+  private func removeSourceHelp(sourceCount: Int) -> String {
+    if sourceCount < 2 { return "The last source can't be removed" }
+    if activity.isRunning { return "Wait for the running command to finish" }
+    return "Remove this source from sources.conf"
   }
 
   private var trimmedSource: String { newSource.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -233,8 +242,8 @@ struct ConfigurationView: View {
         }
       }
       if let problem = draftProblem {
-        Label(problem, systemImage: "exclamationmark.triangle.fill")
-          .font(.caption).foregroundStyle(.orange)
+        StatusLabel(problem, systemImage: "exclamationmark.triangle.fill", color: .orange)
+          .font(.caption)
       } else {
         Text("Point this at a MacPorts installed outside /opt/local. Takes effect immediately.")
           .font(.caption).foregroundStyle(.secondary)

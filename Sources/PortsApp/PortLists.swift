@@ -30,6 +30,11 @@ struct PaneHeader<Accessory: View>: View {
   }
 }
 
+/// "1 result", "3 results": a count with its noun in the right number.
+func counted(_ count: Int, _ singular: String, plural: String? = nil) -> String {
+  "\(count.formatted()) " + (count == 1 ? singular : plural ?? singular + "s")
+}
+
 extension PaneHeader where Accessory == EmptyView {
   init(title: String, subtitle: String) {
     self.init(title: title, subtitle: subtitle) { EmptyView() }
@@ -52,6 +57,10 @@ struct InstalledListView: View {
   let filter: String
   @Binding var sortOrder: [KeyPathComparator<InstalledPort>]
   @Binding var selection: InstalledPort.ID?
+  /// Opens the Configuration tab, where the `port` path is set.
+  var showConfiguration: () -> Void = {}
+
+  private static let installPage = URL(string: "https://www.macports.org/install.php")!
 
   var body: some View {
     let rows = model.ports.matching(filter).sorted(using: sortOrder)
@@ -59,14 +68,20 @@ struct InstalledListView: View {
       PaneHeader(title: "Installed Ports", subtitle: "\(rows.count) of \(model.ports.count)")
       Group {
         if let error = model.errorMessage {
-          ContentUnavailableView(
-            "Can't read ports", systemImage: "exclamationmark.triangle",
-            description: Text(error))
+          LoadErrorView(title: "Can't read ports", message: error) {
+            Task { await model.load() }
+          } extraActions: {
+            if model.isPortMissing {
+              Link("Get MacPorts", destination: Self.installPage)
+              Button("Set port Location…", action: showConfiguration)
+            }
+          }
         } else if model.isLoading && model.ports.isEmpty {
-          ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+          ProgressView("Loading installed ports…")
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
           Table(rows, selection: $selection, sortOrder: $sortOrder) {
-            TableColumn("Name", value: \.name)
+            TableColumn("Name", value: \.name).width(min: 120, ideal: 160)
             TableColumn("Version", value: \.version) { port in
               HStack(spacing: 4) {
                 Text(port.version)
@@ -78,11 +93,13 @@ struct InstalledListView: View {
                 }
               }
             }
+            .width(min: 80, ideal: 100, max: 160)
             TableColumn("Variants") { Text($0.variants.map { "+" + $0 }.joined(separator: " ")) }
             TableColumn("Status") {
               Text($0.isActive ? "Active" : "Inactive")
                 .foregroundStyle($0.isActive ? .primary : .secondary)
             }
+            .width(min: 60, ideal: 70, max: 90)
           }
           .contextMenu(forSelectionType: InstalledPort.ID.self) { ids in
             if ids.count == 1, let port = model.ports.first(where: { ids.contains($0.id) }) {
@@ -115,8 +132,9 @@ struct InactiveListView: View {
             description: Text("Old versions left behind by upgrades appear here."))
         } else {
           Table(rows, selection: $selection, sortOrder: $sortOrder) {
-            TableColumn("Name", value: \.name)
+            TableColumn("Name", value: \.name).width(min: 120, ideal: 160)
             TableColumn("Version") { Text("\($0.version)_\($0.revision)") }
+              .width(min: 80, ideal: 100, max: 160)
             TableColumn("Variants") {
               Text($0.variants.map { "+" + $0 }.joined(separator: " ")).foregroundStyle(.secondary)
             }
@@ -165,7 +183,9 @@ struct SearchResultsView: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      PaneHeader(title: "Available Ports", subtitle: "\(searchModel.results.count) results") {
+      PaneHeader(
+        title: "Available Ports", subtitle: counted(searchModel.results.count, "result")
+      ) {
         Picker("Match", selection: $scope) {
           ForEach(SearchScope.allCases) { Text($0.rawValue).tag($0) }
         }
@@ -180,9 +200,7 @@ struct SearchResultsView: View {
 
   @ViewBuilder private var content: some View {
     if let error = searchModel.errorMessage {
-      ContentUnavailableView(
-        "Search failed", systemImage: "exclamationmark.triangle",
-        description: Text(error))
+      LoadErrorView(title: "Search failed", message: error) { searchModel.retry() }
     } else if searchModel.isSearching {
       ProgressView("Searching…").frame(maxWidth: .infinity, maxHeight: .infinity)
     } else if !searchModel.hasSearched {
@@ -200,7 +218,7 @@ struct SearchResultsView: View {
         : searchModel.results
       let rows = names.map { SearchRow(name: $0, isInstalled: installed.names.contains($0)) }
       Table(rows, selection: $selection) {
-        TableColumn("Name", value: \.name)
+        TableColumn("Name", value: \.name).width(min: 120, ideal: 200)
         TableColumn("Pre-built") { row in
           BinaryHint(
             value: searchModel.binary[row.name],
@@ -210,6 +228,7 @@ struct SearchResultsView: View {
         TableColumn("Status") { row in
           SearchStatus(progress: activity.progress[row.name], isInstalled: row.isInstalled)
         }
+        .width(min: 90, ideal: 120)
       }
       .contextMenu(forSelectionType: String.self) { names in
         if names.count == 1, let name = names.first {
@@ -256,6 +275,55 @@ struct SearchStatus: View {
   }
 }
 
+/// A load or search error in place of a list, with Try Again and any other
+/// ways to fix it.
+struct LoadErrorView<Extra: View>: View {
+  let title: String
+  let message: String
+  let retry: () -> Void
+  @ViewBuilder var extraActions: Extra
+
+  var body: some View {
+    ContentUnavailableView {
+      Label(title, systemImage: "exclamationmark.triangle")
+    } description: {
+      Text(message)
+    } actions: {
+      Button("Try Again", action: retry)
+      extraActions
+    }
+  }
+}
+
+extension LoadErrorView where Extra == EmptyView {
+  init(title: String, message: String, retry: @escaping () -> Void) {
+    self.init(title: title, message: message, retry: retry) { EmptyView() }
+  }
+}
+
+/// Where an outdated port is in a running upgrade; empty when it isn't part of one.
+struct UpgradeStatus: View {
+  let progress: PortProgress?
+
+  var body: some View {
+    switch progress {
+    case .working(let phase):
+      HStack(spacing: 6) {
+        ProgressView().controlSize(.small)
+        Text(phase + "…")
+      }
+      .foregroundStyle(.tint)
+      .accessibilityElement(children: .combine)
+    case .queued:
+      Label("Waiting…", systemImage: "clock").foregroundStyle(.secondary)
+    case .done:
+      Label("Upgraded", systemImage: "checkmark.circle").foregroundStyle(.secondary)
+    case nil:
+      Text("")
+    }
+  }
+}
+
 /// The Pre-built column: a seal, a dash, a question mark, or a spinner while checking.
 struct BinaryHint: View {
   let value: BinaryAvailability?
@@ -266,13 +334,17 @@ struct BinaryHint: View {
     case .available:
       Image(systemName: "checkmark.seal.fill").foregroundStyle(.green)
         .help("A pre-built binary exists for this Mac")
+        .accessibilityLabel("Pre-built binary available")
     case .unavailable:
       Text("–").foregroundStyle(.secondary).help("No pre-built binary found; builds from source")
+        .accessibilityLabel("Builds from source")
     case .unknown:
       Text("?").foregroundStyle(.secondary).help("Couldn't reach the archive server")
+        .accessibilityLabel("Pre-built status unknown")
     case nil:
       if pending {
         ProgressView().controlSize(.mini)
+          .accessibilityLabel("Checking for a pre-built binary")
       } else {
         Text("")
       }
@@ -297,9 +369,9 @@ struct OutdatedListView: View {
 
   @ViewBuilder private var content: some View {
     if let error = model.errorMessage {
-      ContentUnavailableView(
-        "Can't check for updates", systemImage: "exclamationmark.triangle",
-        description: Text(error))
+      LoadErrorView(title: "Can't check for updates", message: error) {
+        Task { await model.load() }
+      }
     } else if model.isLoading && model.ports.isEmpty {
       ProgressView("Checking…").frame(maxWidth: .infinity, maxHeight: .infinity)
     } else if model.ports.isEmpty {
@@ -312,15 +384,19 @@ struct OutdatedListView: View {
           && (!prebuiltOnly || model.binary[$0.name] == .available)
       }
       Table(rows, selection: $selection) {
-        TableColumn("Name", value: \.name)
-        TableColumn("Installed", value: \.installedVersion)
-        TableColumn("Available", value: \.availableVersion)
+        TableColumn("Name", value: \.name).width(min: 110, ideal: 150)
+        TableColumn("Installed", value: \.installedVersion).width(min: 70, ideal: 90, max: 140)
+        TableColumn("Available", value: \.availableVersion).width(min: 70, ideal: 90, max: 140)
         TableColumn("Pre-built") { row in
           BinaryHint(
             value: model.binary[row.name],
             pending: model.binary.isEmpty || model.binary[row.name] == nil)
         }
         .width(min: 70, ideal: 80, max: 100)
+        TableColumn("Status") { row in
+          UpgradeStatus(progress: actions.activity.progress[row.name])
+        }
+        .width(min: 70, ideal: 110)
       }
       .contextMenu(forSelectionType: OutdatedPort.ID.self) { ids in
         let names = rows.filter { ids.contains($0.id) }.map(\.name)
@@ -343,11 +419,13 @@ struct OutdatedListView: View {
 
 struct SelectionsListView: View {
   let model: SelectionsModel
+  /// Passed in for the table cells, like the other lists.
+  let activity: ActivityLog
   @Binding var selection: String?
 
   var body: some View {
     VStack(spacing: 0) {
-      PaneHeader(title: "Selections Ports", subtitle: "\(model.groups.count) groups")
+      PaneHeader(title: "Selections", subtitle: counted(model.groups.count, "group"))
       content
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -355,23 +433,41 @@ struct SelectionsListView: View {
 
   @ViewBuilder private var content: some View {
     if let error = model.errorMessage {
-      ContentUnavailableView(
-        "Can't read selections", systemImage: "exclamationmark.triangle",
-        description: Text(error))
+      LoadErrorView(title: "Can't read selections", message: error) {
+        Task { await model.load() }
+      }
     } else if model.isLoading && model.groups.isEmpty {
-      ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+      ProgressView("Loading selections…").frame(maxWidth: .infinity, maxHeight: .infinity)
     } else if model.groups.isEmpty {
       ContentUnavailableView(
         "No selection groups", systemImage: "arrow.left.arrow.right.circle",
         description: Text("Install ports such as clang or python to choose between versions."))
     } else {
       Table(model.groups, selection: $selection) {
-        TableColumn("Group", value: \.name)
-        TableColumn("Selected") {
-          Text($0.selected).foregroundStyle($0.isSet ? .primary : .secondary)
+        TableColumn("Group", value: \.name).width(min: 100, ideal: 140)
+        TableColumn("Selected") { group in
+          Picker("Selected", selection: choice(for: group)) {
+            ForEach(group.options.filter { $0 != "none" }, id: \.self) { Text($0).tag($0) }
+            Divider()
+            Text("None").tag("none")
+          }
+          .labelsHidden()
+          .pickerStyle(.menu)
+          .controlSize(.small)
+          .fixedSize()
+          .disabled(activity.isRunning)
+          .help("Choose which version \(group.name) uses (uses administrator authorization)")
         }
       }
     }
+  }
+}
+
+extension SelectionsListView {
+  fileprivate func choice(for group: PortSelectGroup) -> Binding<String> {
+    Binding(
+      get: { model.shownSelection(group) },
+      set: { option in Task { await model.select(option, in: group, activity: activity) } })
   }
 }
 
