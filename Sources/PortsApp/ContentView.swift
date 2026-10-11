@@ -617,6 +617,7 @@ struct ContentView: View {
       ToolbarItem {
         Button("Refresh", systemImage: "arrow.clockwise") { Task { await refreshAll() } }
           .disabled(model.isLoading || outdatedModel.isLoading)
+          .help("Reload the port lists (⌘R)")
       }
     }
   }

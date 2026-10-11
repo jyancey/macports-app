@@ -14,7 +14,7 @@ struct SelectionDetailView: View {
       } header: {
         Text(group.name).font(.title2.bold())
       }
-      Section("Choose a version") {
+      Section {
         ForEach(group.options.filter { $0 != "none" }, id: \.self) { option in
           HStack {
             Text(option)
@@ -30,12 +30,13 @@ struct SelectionDetailView: View {
           Button("Unset", systemImage: "xmark.circle") { apply("none") }
             .disabled(activity.isRunning)
         }
+      } header: {
+        Text("Choose a version")
+      } footer: {
+        Text(
+          "Selecting a version points the shared commands (such as \(group.name)) at it. "
+            + "Changing it uses macOS administrator authorization.")
       }
-      Text(
-        "Selecting a version points the shared commands (such as \(group.name)) at it. "
-          + "Changing it uses macOS administrator authorization."
-      )
-      .font(.caption).foregroundStyle(.secondary)
     }
     .formStyle(.grouped)
   }

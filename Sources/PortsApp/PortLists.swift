@@ -30,6 +30,11 @@ struct PaneHeader<Accessory: View>: View {
   }
 }
 
+/// "1 result", "3 results": a count with its noun in the right number.
+func counted(_ count: Int, _ singular: String, plural: String? = nil) -> String {
+  "\(count.formatted()) " + (count == 1 ? singular : plural ?? singular + "s")
+}
+
 extension PaneHeader where Accessory == EmptyView {
   init(title: String, subtitle: String) {
     self.init(title: title, subtitle: subtitle) { EmptyView() }
@@ -178,7 +183,9 @@ struct SearchResultsView: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      PaneHeader(title: "Available Ports", subtitle: "\(searchModel.results.count) results") {
+      PaneHeader(
+        title: "Available Ports", subtitle: counted(searchModel.results.count, "result")
+      ) {
         Picker("Match", selection: $scope) {
           ForEach(SearchScope.allCases) { Text($0.rawValue).tag($0) }
         }
@@ -418,7 +425,7 @@ struct SelectionsListView: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      PaneHeader(title: "Selections Ports", subtitle: "\(model.groups.count) groups")
+      PaneHeader(title: "Selections", subtitle: counted(model.groups.count, "group"))
       content
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

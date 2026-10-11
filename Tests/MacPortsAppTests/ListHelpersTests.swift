@@ -81,3 +81,10 @@ import Testing
     #expect(calls.list == ["zlib Exact", "zlib Exact"])
   }
 }
+
+@Test func countsUseTheRightNumber() {
+  #expect(counted(0, "result") == "0 results")
+  #expect(counted(1, "result") == "1 result")
+  #expect(counted(2, "group") == "2 groups")
+  #expect(counted(3, "match", plural: "matches") == "3 matches")
+}

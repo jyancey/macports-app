@@ -232,7 +232,9 @@ struct ActivityLogView: View {
         }
         Button("Clear", systemImage: "trash") { log.clear() }
           .disabled(log.isEmpty || log.isRunning)
+          .help("Clear the log")
         Button("Hide", systemImage: "chevron.down") { log.isVisible = false }
+          .help("Hide the activity log (⇧⌘L)")
       }
       .buttonStyle(.borderless)
       .padding(.horizontal, 12).padding(.vertical, 6)
