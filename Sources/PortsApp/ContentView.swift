@@ -150,7 +150,10 @@ final class SelectionsModel {
 @MainActor
 @Observable
 final class OutdatedModel {
-  var ports: [OutdatedPort] = []
+  var ports: [OutdatedPort] = [] {
+    didSet { byName = Dictionary(ports.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a }) }
+  }
+  private var byName: [String: OutdatedPort] = [:]
   var isLoading = false
   var errorMessage: String?
   /// Whether the new version is available pre-built (with the installed
@@ -188,6 +191,12 @@ final class OutdatedModel {
         binary.merge(batch) { $1 }
       }
     }
+  }
+
+  /// The newer version of an installed port, if it has one. Only the active
+  /// version is upgraded, so inactive copies never have an update.
+  func update(for port: InstalledPort) -> OutdatedPort? {
+    port.isActive ? byName[port.name] : nil
   }
 
   /// Loads unless the list was loaded recently and nothing has changed since.
@@ -494,7 +503,8 @@ struct ContentView: View {
       switch currentMode {
       case .installed:
         InstalledListView(
-          model: model, filter: search, sortOrder: $sortOrder, selection: $selection
+          model: model, outdated: outdatedModel, filter: search, sortOrder: $sortOrder,
+          selection: $selection
         )
         .searchable(text: $search, placement: .toolbar, prompt: Text(searchPrompt))
         .searchFocused($searchFocused)
@@ -572,9 +582,13 @@ struct ContentView: View {
               + ". Remove it to reclaim disk space.")
         }
       } else if currentMode == .installed, let port = selectedPort {
+        let update = outdatedModel.update(for: port)
         PortDetailView(
           name: port.name,
-          subtitle: "\(port.version)_\(port.revision)" + (port.isActive ? "" : " (inactive)"),
+          subtitle: "\(port.version)_\(port.revision)"
+            + (port.isActive ? "" : " (inactive)")
+            + (update.map { " → \($0.availableVersion)" } ?? ""),
+          canUpgrade: update != nil,
           onOpenPort: openPort)
       } else if currentMode == .selections,
         let group = selectionsModel.groups.first(where: { $0.id == groupSelection })

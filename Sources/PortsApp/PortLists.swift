@@ -45,6 +45,8 @@ extension Array where Element == InstalledPort {
 
 struct InstalledListView: View {
   let model: InstalledPortsModel
+  /// Marks ports that have a newer version.
+  let outdated: OutdatedModel
   let filter: String
   @Binding var sortOrder: [KeyPathComparator<InstalledPort>]
   @Binding var selection: InstalledPort.ID?
@@ -63,7 +65,17 @@ struct InstalledListView: View {
         } else {
           Table(rows, selection: $selection, sortOrder: $sortOrder) {
             TableColumn("Name", value: \.name)
-            TableColumn("Version", value: \.version)
+            TableColumn("Version", value: \.version) { port in
+              HStack(spacing: 4) {
+                Text(port.version)
+                if let update = outdated.update(for: port) {
+                  Image(systemName: "arrow.up.circle.fill")
+                    .foregroundStyle(.tint)
+                    .help("Version \(update.availableVersion) is available")
+                    .accessibilityLabel("Update available")
+                }
+              }
+            }
             TableColumn("Variants") { Text($0.variants.map { "+" + $0 }.joined(separator: " ")) }
             TableColumn("Status") {
               Text($0.isActive ? "Active" : "Inactive")

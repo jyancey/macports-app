@@ -218,3 +218,21 @@ extension Gates {
     #expect(present.registryReadable)
   }
 }
+
+@MainActor
+@Suite struct OutdatedLookupTests {
+  @Test func onlyTheActiveVersionHasAnUpdate() {
+    let model = OutdatedModel { [] }
+    model.ports = [
+      OutdatedPort(name: "zlib", installedVersion: "1.3_0", availableVersion: "1.3.1_0")
+    ]
+    let active = InstalledPort(
+      name: "zlib", version: "1.3", revision: 0, variants: [], isActive: true)
+    let inactive = InstalledPort(
+      name: "zlib", version: "1.2", revision: 0, variants: [], isActive: false)
+    let other = InstalledPort(name: "xz", version: "5.4", revision: 0, variants: [], isActive: true)
+    #expect(model.update(for: active)?.availableVersion == "1.3.1_0")
+    #expect(model.update(for: inactive) == nil)
+    #expect(model.update(for: other) == nil)
+  }
+}
