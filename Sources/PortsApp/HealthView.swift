@@ -104,13 +104,6 @@ struct HealthView: View {
   private func checkRegistry() async {
     isCheckingRegistry = true
     defer { isCheckingRegistry = false }
-    do {
-      let info = try await PortClient().macPortsInfo()
-      registryStatus = await PortClient().registryStatus(for: info.dataPath)
-    } catch {
-      registryStatus = RegistryStatus(
-        path: "Unknown", exists: false, readable: false,
-        integrity: .unavailable(error.localizedDescription))
-    }
+    registryStatus = await PortClient().registryStatus()
   }
 }

@@ -607,6 +607,7 @@ struct ContentView: View {
       ConfigurationView(
         search: $search,
         scope: $scope,
+        installedCount: model.ports.count,
         onSearch: {
           guard currentMode == .available else { return }
           searchModel.search(search, scope: scope)

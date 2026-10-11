@@ -9,7 +9,6 @@ public struct MacPortsInfo: Sendable, Equatable {
   public var applicationsDir: String
   public var sources: [String]
   public var sourcesConfPath: String
-  public var installedCount: Int
   public var lastSync: Date?
 
   /// Parses `port version` output ("Version: 2.12.6").
@@ -127,28 +126,45 @@ extension MacPortsInfo {
 }
 
 extension PortClient {
+  /// Runs `port version` once; everything else is read from the config files.
   public func macPortsInfo() async throws -> MacPortsInfo {
     let version = MacPortsInfo.parseVersion(try await run(["version"]))
-    let prefix = executableURL.deletingLastPathComponent().deletingLastPathComponent().path
-    let confDir = prefix + "/etc/macports"
-    let fm = FileManager.default
-    func read(_ path: String) -> String {
-      (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
-    }
-    let conf = MacPortsInfo.parseConf(read(confDir + "/macports.conf"))
-    let dataPath = conf["portdbpath"] ?? prefix + "/var/macports"
-    let sourcesConf = conf["sources_conf"] ?? confDir + "/sources.conf"
-    let sources = MacPortsInfo.parseSources(read(sourcesConf))
-    let count = PortListParser.parseInstalled(try await run(["-q", "installed"])).count
+    let conf = localConf()
     let sync =
-      (try? fm.attributesOfItem(
-        atPath: dataPath + "/sources/rsync.macports.org/macports/release/tarballs/PortIndex"))?[
+      (try? FileManager.default.attributesOfItem(
+        atPath: conf.dataPath + "/sources/rsync.macports.org/macports/release/tarballs/PortIndex"))?[
         .modificationDate] as? Date
     return MacPortsInfo(
       version: version, executablePath: executableURL.path,
-      prefix: conf["prefix"] ?? prefix, dataPath: dataPath,
-      applicationsDir: conf["applications_dir"] ?? "/Applications/MacPorts",
-      sources: sources, sourcesConfPath: sourcesConf, installedCount: count, lastSync: sync)
+      prefix: conf.values["prefix"] ?? conf.prefix, dataPath: conf.dataPath,
+      applicationsDir: conf.values["applications_dir"] ?? "/Applications/MacPorts",
+      sources: MacPortsInfo.parseSources(Self.read(conf.sourcesConfPath)),
+      sourcesConfPath: conf.sourcesConfPath, lastSync: sync)
+  }
+
+  /// MacPorts' data directory (`portdbpath`), read from macports.conf
+  /// without running `port`.
+  public func dataPath() -> String { localConf().dataPath }
+
+  /// Checks the registry database in `dataPath()`.
+  public func registryStatus() async -> RegistryStatus {
+    await registryStatus(for: dataPath())
+  }
+
+  private func localConf() -> (
+    values: [String: String], prefix: String, dataPath: String, sourcesConfPath: String
+  ) {
+    let prefix = executableURL.deletingLastPathComponent().deletingLastPathComponent().path
+    let confDir = prefix + "/etc/macports"
+    let values = MacPortsInfo.parseConf(Self.read(confDir + "/macports.conf"))
+    return (
+      values, prefix, values["portdbpath"] ?? prefix + "/var/macports",
+      values["sources_conf"] ?? confDir + "/sources.conf"
+    )
+  }
+
+  private static func read(_ path: String) -> String {
+    (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
   }
 
   public func registryStatus(for dataPath: String) async -> RegistryStatus {

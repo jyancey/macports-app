@@ -6,6 +6,8 @@ struct ConfigurationView: View {
   @Binding private var search: String
   @Binding private var scope: SearchScope
   private let onSearch: () -> Void
+  /// From the Installed list, so showing this tab doesn't run `port installed`.
+  private let installedCount: Int
   @AppStorage(PortClient.verboseDefaultsKey) private var verbose = false
   @AppStorage(ActivityLog.autoOpenKey) private var autoOpen = true
   @Environment(ActivityLog.self) private var activity
@@ -18,10 +20,12 @@ struct ConfigurationView: View {
   @State private var failure: String?
 
   init(
-    search: Binding<String>, scope: Binding<SearchScope>, onSearch: @escaping () -> Void
+    search: Binding<String>, scope: Binding<SearchScope>, installedCount: Int,
+    onSearch: @escaping () -> Void
   ) {
     _search = search
     _scope = scope
+    self.installedCount = installedCount
     self.onSearch = onSearch
   }
 
@@ -55,7 +59,7 @@ struct ConfigurationView: View {
               FileManager.default.isReadableFile(atPath: registryPath) ? .green : .orange)
           }
           row("Applications", info.applicationsDir)
-          row("Installed ports", "\(info.installedCount)")
+          row("Installed ports", "\(installedCount)")
           row(
             "Last sync", info.lastSync?.formatted(date: .abbreviated, time: .shortened) ?? "Unknown"
           )
