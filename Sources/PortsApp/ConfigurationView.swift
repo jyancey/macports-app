@@ -8,6 +8,9 @@ import SwiftUI
 final class ConfigurationModel {
   private(set) var info: MacPortsInfo?
   private(set) var failure: String?
+  /// Whether the registry database can be read; checked once per load rather
+  /// than on every redraw.
+  private(set) var registryReadable = false
 
   typealias Fetch = @Sendable () async throws -> MacPortsInfo
   private let fetch: Fetch
@@ -30,7 +33,9 @@ final class ConfigurationModel {
   func load() async {
     let token = freshness.begin()
     do {
-      info = try await fetch()
+      let loaded = try await fetch()
+      info = loaded
+      registryReadable = FileManager.default.isReadableFile(atPath: loaded.registryPath)
       failure = nil
       freshness.markLoaded(token)
     } catch is CancellationError {
@@ -89,16 +94,14 @@ struct ConfigurationView: View {
           row("Version", info.version)
           row("Prefix", info.prefix)
           row("Data directory", info.dataPath)
-          let registryPath = info.dataPath + "/registry/registry.db"
-          row("Registry database", registryPath)
+          row("Registry database", info.registryPath)
           LabeledContent("Registry status") {
             Label(
-              FileManager.default.isReadableFile(atPath: registryPath) ? "Present and readable" : "Missing or unreadable",
-              systemImage: FileManager.default.isReadableFile(atPath: registryPath)
+              model.registryReadable ? "Present and readable" : "Missing or unreadable",
+              systemImage: model.registryReadable
                 ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
             )
-            .foregroundStyle(
-              FileManager.default.isReadableFile(atPath: registryPath) ? .green : .orange)
+            .foregroundStyle(model.registryReadable ? .green : .orange)
           }
           row("Applications", info.applicationsDir)
           row("Installed ports", "\(installedCount)")
@@ -237,10 +240,9 @@ struct ConfigurationView: View {
     }
   }
 
-  private var draftProblem: String? {
-    PortClient.problem(
-      withExecutablePath: pathDraft.trimmingCharacters(in: .whitespacesAndNewlines))
-  }
+  /// What's wrong with the typed `port` path; updated when it changes rather
+  /// than checking the disk on every redraw.
+  @State private var draftProblem: String?
 
   private var pathEditor: some View {
     VStack(alignment: .leading, spacing: 6) {
@@ -272,6 +274,10 @@ struct ConfigurationView: View {
         Text("Point this at a MacPorts installed outside /opt/local. Takes effect immediately.")
           .font(.caption).foregroundStyle(.secondary)
       }
+    }
+    .onChange(of: pathDraft, initial: true) {
+      draftProblem = PortClient.problem(
+        withExecutablePath: pathDraft.trimmingCharacters(in: .whitespacesAndNewlines))
     }
   }
 

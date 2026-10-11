@@ -11,6 +11,9 @@ public struct MacPortsInfo: Sendable, Equatable {
   public var sourcesConfPath: String
   public var lastSync: Date?
 
+  /// The registry database MacPorts keeps in `dataPath`.
+  public var registryPath: String { dataPath + "/registry/registry.db" }
+
   /// Parses `port version` output ("Version: 2.12.6").
   public static func parseVersion(_ output: String) -> String {
     for line in output.split(whereSeparator: \.isNewline) {

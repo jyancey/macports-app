@@ -194,4 +194,27 @@ extension Gates {
     await model.checkIfNeeded()
     #expect(model.findings == [])
   }
+
+  @Test func registryReadabilityIsCheckedOnLoad() async throws {
+    let dir = FileManager.default.temporaryDirectory
+      .appendingPathComponent("ports-app-db-\(UUID().uuidString)").path
+    defer { try? FileManager.default.removeItem(atPath: dir) }
+    try FileManager.default.createDirectory(
+      atPath: dir + "/registry", withIntermediateDirectories: true)
+    func model(_ dataPath: String) -> ConfigurationModel {
+      ConfigurationModel {
+        MacPortsInfo(
+          version: "2.12.6", executablePath: "", prefix: "", dataPath: dataPath,
+          applicationsDir: "", sources: [], sourcesConfPath: "", lastSync: nil)
+      }
+    }
+    let missing = model(dir)
+    await missing.load()
+    #expect(!missing.registryReadable)
+
+    FileManager.default.createFile(atPath: dir + "/registry/registry.db", contents: Data())
+    let present = model(dir)
+    await present.load()
+    #expect(present.registryReadable)
+  }
 }
