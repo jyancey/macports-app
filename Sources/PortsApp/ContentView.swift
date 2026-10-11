@@ -515,8 +515,16 @@ struct ContentView: View {
         .help(isSidebarVisible ? "Hide the navigation sidebar" : "Show the navigation sidebar")
       }
       ToolbarItem {
-        Button("Activity Log", systemImage: "terminal") { activity.isVisible.toggle() }
-          .help("Show or hide the activity log")
+        Button {
+          activity.isVisible.toggle()
+        } label: {
+          Label {
+            Text("Activity Log")
+          } icon: {
+            ActivityToolbarIcon(log: activity)
+          }
+        }
+        .help(ActivityToolbarIcon.help(activity))
       }
       if currentMode == .available {
         ToolbarItem {
