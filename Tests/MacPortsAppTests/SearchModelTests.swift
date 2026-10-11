@@ -38,6 +38,7 @@ import Testing
     model.search("zlib", scope: .name)
     #expect(try await until { isDone(model) })
     #expect(model.results == ["zlib", "zlib-extra"])
+    #expect(model.searchedTerm == "zlib")
     #expect(model.errorMessage == nil)
     #expect(try await until { model.binary == ["zlib": .available, "zlib-extra": .available] })
   }

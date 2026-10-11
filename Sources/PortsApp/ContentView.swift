@@ -4,7 +4,11 @@ import SwiftUI
 @MainActor
 @Observable
 final class InstalledPortsModel {
-  var ports: [InstalledPort] = []
+  var ports: [InstalledPort] = [] {
+    didSet { names = Set(ports.map(\.name)) }
+  }
+  /// Names of the installed ports, for quick "is it installed" checks.
+  private(set) var names: Set<String> = []
   var isLoading = false
   var errorMessage: String?
 
@@ -30,6 +34,8 @@ final class SearchModel {
   var isSearching = false
   var errorMessage: String?
   var hasSearched = false
+  /// The term the current results are for (the field may have changed since).
+  private(set) var searchedTerm = ""
   /// Pre-built binary hints for the current results; a missing key means
   /// not checked yet.
   private(set) var binary: [String: BinaryAvailability] = [:]
@@ -86,6 +92,7 @@ final class SearchModel {
       let found = try await runSearch(term, scope)
       guard !Task.isCancelled else { return }
       results = found
+      searchedTerm = term
       hasSearched = true
       checkBinaries(found)
     } catch {
@@ -235,12 +242,6 @@ enum BrowseMode: String, CaseIterable, Identifiable {
   }
 }
 
-struct SearchRow: Identifiable {
-  let name: String
-  let isInstalled: Bool
-  var id: String { name }
-}
-
 struct ContentView: View {
   @Environment(ActivityLog.self) private var activity
   @State private var model = InstalledPortsModel()
@@ -262,27 +263,10 @@ struct ContentView: View {
 
   @State private var selection: InstalledPort.ID?
 
-  private var filtered: [InstalledPort] {
-    let matches =
-      search.isEmpty
-      ? model.ports
-      : model.ports.filter { $0.name.localizedCaseInsensitiveContains(search) }
-    return matches.sorted(using: sortOrder)
-  }
-
   private var selectedPort: InstalledPort? {
     model.ports.first { $0.id == selection }
   }
 
-  private var inactivePorts: [InstalledPort] {
-    let matches = model.ports.filter { !$0.isActive }
-    let shown =
-      search.isEmpty ? matches : matches.filter { $0.name.localizedCaseInsensitiveContains(search) }
-    return shown.sorted(using: sortOrder)
-  }
-
-  @AppStorage("activityHeight") private var activityHeight: Double = 200
-  @State private var dragPreview: Double?
   @State private var isSidebarVisible = true
 
   private var currentMode: BrowseMode { mode ?? .installed }
@@ -409,7 +393,7 @@ struct ContentView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         if activity.isVisible {
-          activityPane
+          ActivityPane()
         }
       }
     }
@@ -487,29 +471,58 @@ struct ContentView: View {
     }
   }
 
-  private var mainPane: some View {
-    VStack(spacing: 0) {
-      paneHeader
-      list
+  @ViewBuilder private var mainPane: some View {
+    Group {
+      switch currentMode {
+      case .installed:
+        InstalledListView(
+          model: model, filter: search, sortOrder: $sortOrder, selection: $selection)
+      case .available:
+        SearchResultsView(
+          searchModel: searchModel, installed: model, activity: activity,
+          prebuiltOnly: prebuiltOnly,
+          selection: $searchSelection)
+      case .outdated:
+        OutdatedListView(
+          model: outdatedModel, filter: search, prebuiltOnly: prebuiltOnly,
+          selection: $outdatedSelection)
+      case .inactive:
+        InactiveListView(
+          model: model, filter: search, sortOrder: $sortOrder, selection: $inactiveSelection)
+      case .selections:
+        SelectionsListView(model: selectionsModel, selection: $groupSelection)
+      case .health:
+        VStack(spacing: 0) {
+          PaneHeader(title: "Health", subtitle: "Environment checks")
+          HealthView(model: healthModel)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+      case .configuration:
+        VStack(spacing: 0) {
+          PaneHeader(title: "Configuration", subtitle: "Settings")
+          ConfigurationView(
+            search: $search,
+            scope: $scope,
+            model: configurationModel,
+            installedCount: model.ports.count,
+            onSearch: {
+              guard currentMode == .available else { return }
+              searchModel.search(search, scope: scope)
+            })
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+      }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
-  }
-
-  private var paneHeader: some View {
-    VStack(alignment: .leading, spacing: 2) {
-      Text(
-        currentMode == .configuration
-          ? "Configuration" : currentMode == .health ? "Health" : "\(currentMode.rawValue) Ports"
-      )
-      .font(.title2.weight(.semibold))
-      Text(subtitle)
-        .font(.subheadline)
-        .foregroundStyle(.secondary)
+    .onChange(of: scope) {
+      if currentMode == .available, searchModel.hasSearched, !search.isEmpty {
+        searchModel.search(search, scope: scope)
+      }
     }
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .padding(.horizontal, 16)
-    .padding(.vertical, 10)
-    .background(.bar)
+    .onSubmit(of: .search) {
+      guard currentMode == .available else { return }
+      searchModel.search(search, scope: scope)
+    }
   }
 
   @ViewBuilder
@@ -518,7 +531,7 @@ struct ContentView: View {
       if currentMode == .available, let name = searchSelection {
         PortDetailView(
           name: name,
-          isInstalled: model.ports.contains { $0.name == name },
+          isInstalled: model.names.contains(name),
           onInstalled: { await model.load() },
           onUninstalled: { await model.load() },
           onOpenPort: openPort)
@@ -575,50 +588,6 @@ struct ContentView: View {
     }
   }
 
-  @ViewBuilder
-  private var activityPane: some View {
-    VStack(spacing: 0) {
-      Divider()
-        .overlay(
-          Color.clear.frame(height: 8).contentShape(Rectangle())
-            .onHover { $0 ? NSCursor.resizeUpDown.push() : NSCursor.pop() }
-            .gesture(
-              DragGesture(minimumDistance: 1, coordinateSpace: .global)
-                .onChanged { v in
-                  dragPreview = min(600, max(80, activityHeight - v.translation.height))
-                }
-                .onEnded { _ in
-                  if let h = dragPreview { activityHeight = h }
-                  dragPreview = nil
-                })
-        )
-        .overlay(alignment: .top) {
-          if let h = dragPreview {
-            Rectangle().fill(Color.accentColor).frame(height: 2)
-              .overlay(alignment: .trailing) {
-                Text("\(Int(h)) pt").font(.caption2).padding(2)
-                  .background(.regularMaterial)
-                  .offset(y: -14)
-              }
-              .offset(y: activityHeight - h)
-          }
-        }
-      ActivityLogView(height: activityHeight)
-    }
-  }
-
-  private var subtitle: String {
-    switch currentMode {
-    case .installed: "\(filtered.count) of \(model.ports.count)"
-    case .available: "\(searchModel.results.count) results"
-    case .outdated: "\(outdatedModel.ports.count) outdated"
-    case .inactive: "\(inactivePorts.count) inactive"
-    case .selections: "\(selectionsModel.groups.count) groups"
-    case .health: "Environment checks"
-    case .configuration: "Settings"
-    }
-  }
-
   private var searchPrompt: String {
     guard searchIsEnabled else { return "" }
     return currentMode == .available
@@ -629,213 +598,6 @@ struct ContentView: View {
     switch currentMode {
     case .installed, .available, .outdated, .inactive: true
     case .selections, .health, .configuration: false
-    }
-  }
-
-  @ViewBuilder private var list: some View {
-    if currentMode == .configuration {
-      ConfigurationView(
-        search: $search,
-        scope: $scope,
-        model: configurationModel,
-        installedCount: model.ports.count,
-        onSearch: {
-          guard currentMode == .available else { return }
-          searchModel.search(search, scope: scope)
-        })
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    } else if currentMode == .health {
-      HealthView(model: healthModel)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    } else {
-      searchableList
-    }
-  }
-
-  private var searchableList: some View {
-    Group {
-      switch currentMode {
-      case .installed: installedList
-      case .available: searchList
-      case .outdated: outdatedList
-      case .inactive: inactiveList
-      case .selections: selectionsList
-      case .health, .configuration: EmptyView()
-      }
-    }
-    .frame(maxWidth: .infinity, maxHeight: .infinity)
-    .onChange(of: scope) {
-      if currentMode == .available, searchModel.hasSearched, !search.isEmpty {
-        searchModel.search(search, scope: scope)
-      }
-    }
-    .onSubmit(of: .search) {
-      guard currentMode == .available else { return }
-      searchModel.search(search, scope: scope)
-    }
-  }
-
-  @ViewBuilder private var searchList: some View {
-    if let error = searchModel.errorMessage {
-      ContentUnavailableView(
-        "Search failed", systemImage: "exclamationmark.triangle",
-        description: Text(error))
-    } else if searchModel.isSearching {
-      ProgressView("Searching…").frame(maxWidth: .infinity, maxHeight: .infinity)
-    } else if !searchModel.hasSearched {
-      ContentUnavailableView(
-        "Search MacPorts", systemImage: "magnifyingglass",
-        description: Text("Type a name or keyword and press Return."))
-    } else if searchModel.results.isEmpty {
-      ContentUnavailableView.search(text: search)
-    } else {
-      let installed = Set(model.ports.map(\.name))
-      let names =
-        prebuiltOnly
-        ? searchModel.results.filter { searchModel.binary[$0] == .available }
-        : searchModel.results
-      let rows = names.map { SearchRow(name: $0, isInstalled: installed.contains($0)) }
-      Table(rows, selection: $searchSelection) {
-        TableColumn("Name", value: \.name)
-        TableColumn("Pre-built") { row in
-          binaryHint(row.name)
-        }
-        .width(min: 70, ideal: 80, max: 100)
-        TableColumn("Status") { row in
-          searchStatus(row)
-        }
-      }
-    }
-  }
-
-  @ViewBuilder private func binaryHint(_ name: String) -> some View {
-    binaryHint(searchModel.binary[name], pending: searchModel.binaryCheckPending(name))
-  }
-
-  @ViewBuilder private func binaryHint(_ value: BinaryAvailability?, pending: Bool) -> some View {
-    switch value {
-    case .available:
-      Image(systemName: "checkmark.seal.fill").foregroundStyle(.green)
-        .help("A pre-built binary exists for this Mac")
-    case .unavailable:
-      Text("–").foregroundStyle(.secondary).help("No pre-built binary found; builds from source")
-    case .unknown:
-      Text("?").foregroundStyle(.secondary).help("Couldn't reach the archive server")
-    case nil:
-      if pending {
-        ProgressView().controlSize(.mini)
-      } else {
-        Text("")
-      }
-    }
-  }
-
-  @ViewBuilder private func searchStatus(_ row: SearchRow) -> some View {
-    switch activity.progress[row.name] {
-    case .working(let phase):
-      HStack(spacing: 6) {
-        ProgressView().controlSize(.small)
-        Text(phase + "…")
-      }
-      .foregroundStyle(.tint)
-    case .queued:
-      Label("Waiting…", systemImage: "clock").foregroundStyle(.secondary)
-    case .done:
-      Label("Installed", systemImage: "shippingbox.fill").foregroundStyle(.secondary)
-    case nil:
-      Label(
-        row.isInstalled ? "Installed" : "Not installed",
-        systemImage: row.isInstalled ? "shippingbox.fill" : "shippingbox"
-      )
-      .foregroundStyle(.secondary)
-    }
-  }
-
-  @ViewBuilder private var inactiveList: some View {
-    if inactivePorts.isEmpty {
-      ContentUnavailableView(
-        "No inactive ports", systemImage: "archivebox",
-        description: Text("Old versions left behind by upgrades appear here."))
-    } else {
-      Table(inactivePorts, selection: $inactiveSelection, sortOrder: $sortOrder) {
-        TableColumn("Name", value: \.name)
-        TableColumn("Version") { Text("\($0.version)_\($0.revision)") }
-        TableColumn("Variants") {
-          Text($0.variants.map { "+" + $0 }.joined(separator: " ")).foregroundStyle(.secondary)
-        }
-      }
-    }
-  }
-
-  @ViewBuilder private var selectionsList: some View {
-    if let error = selectionsModel.errorMessage {
-      ContentUnavailableView(
-        "Can't read selections", systemImage: "exclamationmark.triangle",
-        description: Text(error))
-    } else if selectionsModel.isLoading && selectionsModel.groups.isEmpty {
-      ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-    } else if selectionsModel.groups.isEmpty {
-      ContentUnavailableView(
-        "No selection groups", systemImage: "arrow.left.arrow.right.circle",
-        description: Text("Install ports such as clang or python to choose between versions."))
-    } else {
-      Table(selectionsModel.groups, selection: $groupSelection) {
-        TableColumn("Group", value: \.name)
-        TableColumn("Selected") {
-          Text($0.selected).foregroundStyle($0.isSet ? .primary : .secondary)
-        }
-      }
-    }
-  }
-
-  @ViewBuilder private var outdatedList: some View {
-    if let error = outdatedModel.errorMessage {
-      ContentUnavailableView(
-        "Can't check for updates", systemImage: "exclamationmark.triangle",
-        description: Text(error))
-    } else if outdatedModel.isLoading && outdatedModel.ports.isEmpty {
-      ProgressView("Checking…").frame(maxWidth: .infinity, maxHeight: .infinity)
-    } else if outdatedModel.ports.isEmpty {
-      ContentUnavailableView(
-        "Everything is up to date", systemImage: "checkmark.circle",
-        description: Text("No installed ports have newer versions."))
-    } else {
-      let rows = outdatedModel.ports.filter {
-        (search.isEmpty || $0.name.localizedCaseInsensitiveContains(search))
-          && (!prebuiltOnly || outdatedModel.binary[$0.name] == .available)
-      }
-      Table(rows, selection: $outdatedSelection) {
-        TableColumn("Name", value: \.name)
-        TableColumn("Installed", value: \.installedVersion)
-        TableColumn("Available", value: \.availableVersion)
-        TableColumn("Pre-built") { row in
-          binaryHint(
-            outdatedModel.binary[row.name],
-            pending: outdatedModel.binary.isEmpty
-              || outdatedModel.binary[row.name] == nil)
-        }
-        .width(min: 70, ideal: 80, max: 100)
-      }
-    }
-  }
-
-  @ViewBuilder private var installedList: some View {
-    if let error = model.errorMessage {
-      ContentUnavailableView(
-        "Can't read ports", systemImage: "exclamationmark.triangle",
-        description: Text(error))
-    } else if model.isLoading && model.ports.isEmpty {
-      ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-    } else {
-      Table(filtered, selection: $selection, sortOrder: $sortOrder) {
-        TableColumn("Name", value: \.name)
-        TableColumn("Version", value: \.version)
-        TableColumn("Variants") { Text($0.variants.map { "+" + $0 }.joined(separator: " ")) }
-        TableColumn("Status") {
-          Text($0.isActive ? "Active" : "Inactive")
-            .foregroundStyle($0.isActive ? .primary : .secondary)
-        }
-      }
     }
   }
 }
