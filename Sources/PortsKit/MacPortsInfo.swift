@@ -171,26 +171,11 @@ extension PortClient {
     }
 
     do {
-      let result = try await Task.detached {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: sqlitePath)
-        process.arguments = ["-readonly", path, "PRAGMA quick_check;"]
-        let output = Pipe()
-        let error = Pipe()
-        process.standardOutput = output
-        process.standardError = error
-        try process.run()
-        let outputData = output.fileHandleForReading.readDataToEndOfFile()
-        let errorData = error.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        return (
-          status: process.terminationStatus,
-          output: String(decoding: outputData, as: UTF8.self),
-          error: String(decoding: errorData, as: UTF8.self)
-        )
-      }.value
+      let result = try await ChildProcess.run(
+        URL(fileURLWithPath: sqlitePath), arguments: ["-readonly", path, "PRAGMA quick_check;"])
       let integrity = RegistryStatus.parseIntegrityOutput(
-        result.status == 0 ? result.output : result.error, status: result.status)
+        String(decoding: result.status == 0 ? result.stdout : result.stderr, as: UTF8.self),
+        status: result.status)
       return RegistryStatus(
         path: path, exists: exists, readable: readable, integrity: integrity)
     } catch {
