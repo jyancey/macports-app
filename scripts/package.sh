@@ -61,7 +61,14 @@ pkgbuild --component "$APP" --install-location /Applications \
 STAGE="$(mktemp -d)"
 cp -R "$APP" "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
-hdiutil create -quiet -volname "MacPortsApp" -srcfolder "$STAGE" -ov -format UDZO "dist/MacPortsApp-${VERSION}.dmg"
+DMG="dist/MacPortsApp-${VERSION}.dmg"
+# macOS 27 deprecates `hdiutil create` and it fails there ("Resource busy");
+# `diskutil image create from` replaces it. Older systems lack the latter.
+if diskutil image create from --help >/dev/null 2>&1; then
+    diskutil image create from --volumeName "MacPortsApp" --format UDZO "$STAGE" "$DMG" >/dev/null
+else
+    hdiutil create -quiet -volname "MacPortsApp" -srcfolder "$STAGE" -ov -format UDZO "$DMG"
+fi
 rm -rf "$STAGE"
 
 echo "Built $APP, dist/MacPortsApp-${VERSION}.zip, .pkg and .dmg"
