@@ -1,3 +1,8 @@
+// OutdatedPort.swift - Represents an outdated port and parses `port outdated` output.
+//
+// Created by John Yancey on 06/12/2024.
+// Copyright © 2026 John Yancey. All rights reserved.
+//
 import Foundation
 
 /// A port with a newer version available, from `port outdated`.

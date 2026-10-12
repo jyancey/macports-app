@@ -1,3 +1,8 @@
+// ContentView.swift - The main window: sidebar tabs, port lists, detail pane, and their models.
+//
+// Created by John Yancey on 06/12/2024.
+// Copyright © 2026 John Yancey. All rights reserved.
+//
 import PortsKit
 import SwiftUI
 
@@ -287,10 +292,7 @@ enum BrowseMode: String, CaseIterable, Identifiable {
   case available = "Available"
   case outdated = "Outdated"
   case inactive = "Inactive"
-  case
-    selections = "Selections"
-  case health = "Health"
-  case configuration = "Configuration"
+  case selections = "Selections"
   var id: Self { self }
 
   var symbol: String {
@@ -300,8 +302,6 @@ enum BrowseMode: String, CaseIterable, Identifiable {
     case .outdated: "arrow.triangle.2.circlepath"
     case .inactive: "archivebox"
     case .selections: "arrow.left.arrow.right.circle"
-    case .health: "stethoscope"
-    case .configuration: "gearshape"
     }
   }
 }
@@ -314,8 +314,11 @@ struct ContentView: View {
   @State private var outdatedSelection: Set<OutdatedPort.ID> = []
   @State private var inactiveSelection: Set<InstalledPort.ID> = []
   @State private var selectionsModel = SelectionsModel()
-  @State private var healthModel = HealthModel()
-  @State private var configurationModel = ConfigurationModel()
+  /// App-wide, shown in Settings; marked stale here when a command finishes.
+  private let configurationModel: ConfigurationModel
+  @AppStorage(PortClient.executablePathDefaultsKey) private var portPath = ""
+  @AppStorage(SettingsPane.defaultsKey) private var settingsPane = SettingsPane.general
+  @Environment(\.openSettings) private var openSettings
   @State private var detailCache: PortDetailCache
   @State private var actions: PortActions
   @State private var groupSelection: String?
@@ -335,8 +338,9 @@ struct ContentView: View {
   @State private var columnVisibility = NavigationSplitViewVisibility.all
   @FocusState private var searchFocused: Bool
 
-  init(activity: ActivityLog) {
+  init(activity: ActivityLog, configuration: ConfigurationModel) {
     self.activity = activity
+    self.configurationModel = configuration
     // Created together so that the actions reload these same models.
     let installed = InstalledPortsModel()
     let outdated = OutdatedModel()
@@ -424,6 +428,11 @@ struct ContentView: View {
         configurationModel.invalidate()
         detailCache.removeAll()
       }
+      .onChange(of: portPath) {
+        // A different MacPorts: everything shown came from the old one.
+        selectionsModel.invalidate()
+        Task { await refreshAll() }
+      }
       .focusedSceneValue(\.windowActions, windowActions)
   }
 
@@ -474,7 +483,6 @@ struct ContentView: View {
     async let ports: Void = Self.reloadPorts(
       installed: model, outdated: outdatedModel, cache: detailCache)
     if currentMode == .selections { await selectionsModel.load() }
-    if currentMode == .configuration { await configurationModel.load() }
     await ports
   }
 
@@ -610,7 +618,11 @@ struct ContentView: View {
       case .installed:
         InstalledListView(
           model: model, outdated: outdatedModel, actions: actions, filter: search,
-          sortOrder: $sortOrder, selection: $selection, showConfiguration: { mode = .configuration }
+          sortOrder: $sortOrder, selection: $selection,
+          showPortLocation: {
+            settingsPane = .general
+            openSettings()
+          }
         )
         .searchable(text: $search, placement: .toolbar, prompt: Text(searchPrompt))
         .searchFocused($searchFocused)
@@ -638,18 +650,6 @@ struct ContentView: View {
         .searchFocused($searchFocused)
       case .selections:
         SelectionsListView(model: selectionsModel, activity: activity, selection: $groupSelection)
-      case .health:
-        VStack(spacing: 0) {
-          PaneHeader(title: "Health", subtitle: "Environment checks")
-          HealthView(model: healthModel)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-      case .configuration:
-        VStack(spacing: 0) {
-          PaneHeader(title: "Configuration", subtitle: "Settings")
-          ConfigurationView(model: configurationModel, installedCount: model.ports.count)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
       }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -724,13 +724,6 @@ struct ContentView: View {
         let group = selectionsModel.groups.first(where: { $0.id == groupSelection })
       {
         SelectionDetailView(group: group, model: selectionsModel)
-      } else if currentMode == .health || currentMode == .configuration {
-        // These are single-pane settings screens shown in the content column;
-        // the detail column has nothing to add, so just show the app's branding
-        // instead of restating the content column's title.
-        AppIconImage(size: 96)
-          .opacity(0.5)
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {
         ContentUnavailableView {
           Text("Select a port").font(.title2)
@@ -772,7 +765,6 @@ struct ContentView: View {
     switch item {
     case .outdated: outdatedModel.ports.count
     case .inactive: model.ports.count { !$0.isActive }
-    case .health: healthModel.findings?.count ?? 0
     default: 0
     }
   }
@@ -786,7 +778,7 @@ struct ContentView: View {
   private var searchIsEnabled: Bool {
     switch currentMode {
     case .installed, .available, .outdated, .inactive: true
-    case .selections, .health, .configuration: false
+    case .selections: false
     }
   }
 }

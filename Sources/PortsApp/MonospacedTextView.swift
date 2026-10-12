@@ -1,3 +1,8 @@
+// MonospacedTextView.swift - Read-only monospaced text views for the Activity log and installed file lists.
+//
+// Created by John Yancey on 06/12/2024.
+// Copyright © 2026 John Yancey. All rights reserved.
+//
 import AppKit
 import SwiftUI
 

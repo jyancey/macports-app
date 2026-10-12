@@ -1,3 +1,8 @@
+// Diagnose.swift - Parses the output of `port diagnose`.
+//
+// Created by John Yancey on 06/12/2024.
+// Copyright © 2026 John Yancey. All rights reserved.
+//
 import Foundation
 
 /// One issue reported by `port diagnose`.

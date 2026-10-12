@@ -1,3 +1,8 @@
+// PortInfo.swift - Represents port metadata and parses `port info` output.
+//
+// Created by John Yancey on 06/12/2024.
+// Copyright © 2026 John Yancey. All rights reserved.
+//
 import Foundation
 
 /// Metadata for a port from `port info`.

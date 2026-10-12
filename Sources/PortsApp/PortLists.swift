@@ -1,3 +1,8 @@
+// PortLists.swift - The Installed, Available, Outdated, Inactive, and Selections list views.
+//
+// Created by John Yancey on 06/12/2024.
+// Copyright © 2026 John Yancey. All rights reserved.
+//
 import PortsKit
 import SwiftUI
 
@@ -57,8 +62,8 @@ struct InstalledListView: View {
   let filter: String
   @Binding var sortOrder: [KeyPathComparator<InstalledPort>]
   @Binding var selection: InstalledPort.ID?
-  /// Opens the Configuration tab, where the `port` path is set.
-  var showConfiguration: () -> Void = {}
+  /// Opens Settings, where the `port` path is set.
+  var showPortLocation: () -> Void = {}
 
   private static let installPage = URL(string: "https://www.macports.org/install.php")!
 
@@ -73,7 +78,7 @@ struct InstalledListView: View {
           } extraActions: {
             if model.isPortMissing {
               Link("Get MacPorts", destination: Self.installPage)
-              Button("Set port Location…", action: showConfiguration)
+              Button("Set port Location…", action: showPortLocation)
             }
           }
         } else if model.isLoading && model.ports.isEmpty {

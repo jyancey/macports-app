@@ -1,3 +1,8 @@
+// PortVariant.swift - Represents port variants and parses `port variants` output.
+//
+// Created by John Yancey on 06/12/2024.
+// Copyright © 2026 John Yancey. All rights reserved.
+//
 import Foundation
 
 /// One variant of a port, as listed by `port variants`.

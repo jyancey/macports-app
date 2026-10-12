@@ -1,3 +1,8 @@
+// PortDetailView.swift - The port detail pane, its model, and the install options sheet.
+//
+// Created by John Yancey on 06/12/2024.
+// Copyright © 2026 John Yancey. All rights reserved.
+//
 import PortsKit
 import SwiftUI
 

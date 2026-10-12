@@ -1,3 +1,8 @@
+// PortClient.swift - Thin wrapper around the MacPorts `port` command line tool.
+//
+// Created by John Yancey on 06/12/2024.
+// Copyright © 2026 John Yancey. All rights reserved.
+//
 import Foundation
 
 public enum PortClientError: LocalizedError {

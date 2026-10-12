@@ -1,3 +1,8 @@
+// PortMenus.swift - Context menu items and pasteboard helpers shared by the port tables.
+//
+// Created by John Yancey on 06/12/2024.
+// Copyright © 2026 John Yancey. All rights reserved.
+//
 import AppKit
 import PortsKit
 import SwiftUI

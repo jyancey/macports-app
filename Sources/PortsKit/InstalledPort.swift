@@ -1,3 +1,8 @@
+// InstalledPort.swift - Represents an installed MacPorts port.
+//
+// Created by John Yancey on 06/12/2024.
+// Copyright © 2026 John Yancey. All rights reserved.
+//
 import Foundation
 
 /// One installed version of a MacPorts port, as reported by `port installed`.
