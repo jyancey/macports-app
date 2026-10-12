@@ -128,12 +128,15 @@ CI (`.github/workflows/ci.yml`) builds and tests every push and pull request to 
 
 ### Publishing a release
 
-Releases follow git flow: bump the fallback version in `Sources/PortsApp/PortsApp.swift` on a `release/<version>` branch, merge it into `main`, and tag `main` with an annotated tag whose message holds the release notes:
+Releases follow git flow, and `scripts/release.sh` does the whole sequence: it branches `release/<version>` from `develop`, bumps the fallback version in `Sources/PortsApp/PortsApp.swift`, runs the tests, merges into `main`, tags `main` with an annotated tag whose message holds the release notes, and merges `main` back into `develop`:
 
 ```sh
-git tag -a 0.4.0 -m "Release 0.4.0" -m "- What changed in this release"
-git push origin main 0.4.0
+scripts/release.sh --dry-run 0.4.3          # show the notes and steps
+scripts/release.sh 0.4.3                    # cut it locally
+scripts/release.sh --notes notes.md --push 0.4.3   # own notes, push to every remote
 ```
+
+Without `--notes`, the notes list the commit subjects on `develop` since the last release. The script refuses to run with uncommitted changes, an existing tag, a version that doesn't come after the current one, or a remote `main`/`develop` that has commits the local one lacks. If a step fails it stops and says which, leaving the repository as it is. Without `--push` it prints the push commands instead.
 
 Pushing the tag runs the Release workflow (`.github/workflows/release.yml`). It checks that the tag matches the app's version (`scripts/release-notes.sh`), runs the tests, builds the zip, pkg and dmg with `scripts/package.sh`, and publishes a release with them attached. The tag message's body (or its subject, if there is no body) becomes the release notes. Tags containing a `-`, such as `0.5.0-rc.1`, are published as pre-releases. On GitHub the release is created with `gh`; on Gitea, `scripts/gitea-release.sh` uses the Gitea API. To rebuild an existing release, run the workflow by hand with the tag as input.
 
