@@ -1,0 +1,43 @@
+name: CI
+
+on:
+    push:
+        branches:
+            - main
+    pull_request:
+        branches:
+            - main
+
+jobs:
+    build-and-test:
+        runs-on: macos-arm64
+
+        steps:
+            - uses: actions/checkout@v3
+
+            - name: Set up Xcode 16
+              uses: maxim-lobanov/setup-xcode@v1
+              with:
+                  xcode-version: "16"
+
+            - name: Print Swift version
+              run: swift --version
+
+            - name: Print Xcode version
+              run: xcodebuild -version
+
+            - name: Cache SwiftPM dependencies
+              uses: actions/cache@v3
+              with:
+                  path: |
+                      .build
+                      Packages
+                  key: ${{ runner.os }}-swiftpm-${{ hashFiles('**/Package.resolved') }}
+                  restore-keys: |
+                      ${{ runner.os }}-swiftpm-
+
+            - name: Build
+              run: swift build
+
+            - name: Test
+              run: swift test
