@@ -208,21 +208,11 @@ extension PortClient {
           exists ? "The registry database is not readable." : "The registry database is missing."))
     }
 
-    let sqlitePath = "/usr/bin/sqlite3"
-    guard fm.isExecutableFile(atPath: sqlitePath) else {
+    do {
+      let rows = try PortRegistry(path: path).quickCheck()
       return RegistryStatus(
         path: path, exists: exists, readable: readable,
-        integrity: .unavailable("The system sqlite3 command is unavailable."))
-    }
-
-    do {
-      let result = try await ChildProcess.run(
-        URL(fileURLWithPath: sqlitePath), arguments: ["-readonly", path, "PRAGMA quick_check;"])
-      let integrity = RegistryStatus.parseIntegrityOutput(
-        String(decoding: result.status == 0 ? result.stdout : result.stderr, as: UTF8.self),
-        status: result.status)
-      return RegistryStatus(
-        path: path, exists: exists, readable: readable, integrity: integrity)
+        integrity: RegistryStatus.parseIntegrityOutput(rows.joined(separator: "\n"), status: 0))
     } catch {
       return RegistryStatus(
         path: path, exists: exists, readable: readable,

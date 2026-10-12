@@ -70,6 +70,54 @@ public struct PortRegistry: Sendable {
     }
   }
 
+  /// Rows of `PRAGMA quick_check`: `["ok"]` for a healthy database.
+  public func quickCheck() throws -> [String] {
+    try withDatabase { db in
+      try Self.query(db, "PRAGMA quick_check") { Self.text($0, 0) }
+    }
+  }
+
+  /// MacPorts' RPM-style version ordering, which its `VERSION` collation
+  /// uses. The indexes on `version` are sorted by it, so SQLite needs it
+  /// to read or verify them.
+  static func compareVersions(_ a: [UInt8], _ b: [UInt8]) -> Int {
+    if a == b { return 0 }
+    func isDigit(_ c: UInt8) -> Bool { c >= 0x30 && c <= 0x39 }
+    func isAlpha(_ c: UInt8) -> Bool { (c | 0x20) >= 0x61 && (c | 0x20) <= 0x7A }
+    func isAlnum(_ c: UInt8) -> Bool { isDigit(c) || isAlpha(c) }
+
+    var i = 0
+    var j = 0
+    while i < a.count && j < b.count {
+      while i < a.count && !isAlnum(a[i]) { i += 1 }
+      while j < b.count && !isAlnum(b[j]) { j += 1 }
+      if i >= a.count || j >= b.count { break }
+
+      var endA = i
+      var endB = j
+      let numeric = isDigit(a[i])
+      let kind = numeric ? isDigit : isAlpha
+      while endA < a.count && kind(a[endA]) { endA += 1 }
+      while endB < b.count && kind(b[endB]) { endB += 1 }
+      if endB == j { return numeric ? 1 : -1 }
+
+      var segA = a[i..<endA]
+      var segB = b[j..<endB]
+      if numeric {
+        while segA.first == 0x30 { segA = segA.dropFirst() }
+        while segB.first == 0x30 { segB = segB.dropFirst() }
+        if segA.count != segB.count { return segA.count > segB.count ? 1 : -1 }
+      }
+      if segA.lexicographicallyPrecedes(segB) { return -1 }
+      if segB.lexicographicallyPrecedes(segA) { return 1 }
+      i = endA
+      j = endB
+    }
+    if i >= a.count && j >= b.count { return 0 }
+    if (i >= a.count && !isAlpha(b[j])) || (i < a.count && isAlpha(a[i])) { return -1 }
+    return 1
+  }
+
   private func withDatabase<T>(_ body: (OpaquePointer) throws -> T) throws -> T {
     var handle: OpaquePointer?
     let status = sqlite3_open_v2(path, &handle, SQLITE_OPEN_READONLY, nil)
@@ -79,6 +127,13 @@ public struct PortRegistry: Sendable {
         handle.map { String(cString: sqlite3_errmsg($0)) } ?? "SQLite error \(status)")
     }
     sqlite3_busy_timeout(db, 2000)
+    sqlite3_create_collation_v2(
+      db, "VERSION", SQLITE_UTF8, nil,
+      { _, lengthA, pointerA, lengthB, pointerB in
+        let a = UnsafeRawBufferPointer(start: pointerA, count: Int(lengthA))
+        let b = UnsafeRawBufferPointer(start: pointerB, count: Int(lengthB))
+        return Int32(PortRegistry.compareVersions(Array(a), Array(b)))
+      }, nil)
     return try body(db)
   }
 

@@ -14,9 +14,16 @@ import Testing
     var db: OpaquePointer?
     #expect(sqlite3_open(path, &db) == SQLITE_OK)
     defer { sqlite3_close(db) }
+    sqlite3_create_collation_v2(
+      db, "VERSION", SQLITE_UTF8, nil,
+      { _, lengthA, pointerA, lengthB, pointerB in
+        let a = Array(UnsafeRawBufferPointer(start: pointerA, count: Int(lengthA)))
+        let b = Array(UnsafeRawBufferPointer(start: pointerB, count: Int(lengthB)))
+        return Int32(PortRegistry.compareVersions(a, b))
+      }, nil)
     let schema = [
       "CREATE TABLE ports (id INTEGER PRIMARY KEY, name TEXT COLLATE NOCASE, epoch INTEGER, "
-        + "version TEXT, revision INTEGER, variants TEXT, state TEXT)",
+        + "version TEXT COLLATE VERSION, revision INTEGER, variants TEXT, state TEXT)",
       "CREATE TABLE files (id INTEGER, path TEXT, actual_path TEXT, active INTEGER, binary BOOL)",
       "CREATE TABLE dependencies (id INTEGER, name TEXT, variants TEXT)",
     ]
@@ -85,6 +92,40 @@ import Testing
     let junk = directory.appendingPathComponent("junk.db")
     try Data("not a database, just some text".utf8).write(to: junk)
     #expect(throws: PortRegistryError.self) { try PortRegistry(path: junk.path).installedPorts() }
+  }
+
+  @Test func versionsCompareLikeMacPorts() {
+    func cmp(_ a: String, _ b: String) -> Int {
+      PortRegistry.compareVersions(Array(a.utf8), Array(b.utf8))
+    }
+    #expect(cmp("1.2", "1.10") < 0)
+    #expect(cmp("1.10", "1.2") > 0)
+    #expect(cmp("1.0", "1.0") == 0)
+    #expect(cmp("1.0", "1_0") == 0)
+    #expect(cmp("007", "7") == 0)
+    #expect(cmp("1.0", "1.0.1") < 0)
+    #expect(cmp("1.0a", "1.0") < 0)
+    #expect(cmp("1.0b", "1.0a") > 0)
+    #expect(cmp("1.0", "1.0rc1") > 0)
+    #expect(cmp("2", "10") < 0)
+    #expect(cmp("1.1", "1.a") > 0)
+  }
+
+  @Test func collationLetsSQLiteVerifyVersionIndexes() throws {
+    let (registry, directory) = try Self.makeRegistry([
+      "CREATE INDEX port_name ON ports(name, epoch, version, revision)",
+      "INSERT INTO ports VALUES (1, 'a', 0, '1.10', 0, '', 'installed')",
+      "INSERT INTO ports VALUES (2, 'a', 0, '1.2', 0, '', 'imaged')",
+    ])
+    defer { try? FileManager.default.removeItem(at: directory) }
+    #expect(try registry.quickCheck() == ["ok"])
+  }
+
+  @Test func integrityCheckPassesOnThisMachinesRegistry() async throws {
+    let client = PortClient()
+    guard client.isAvailable, client.registry != nil else { return }
+    let status = await client.registryStatus()
+    #expect(status.integrity == .valid)
   }
 
   /// The registry has to answer exactly what `port` does; compared on this machine's install.
