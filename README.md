@@ -2,51 +2,92 @@
 
 A native macOS GUI for [MacPorts](https://www.macports.org). It sits on top of an existing MacPorts installation and drives the `port` command line tool.
 
+## How it works
+
+MacPorts App is a native SwiftUI front end for an installed MacPorts environment. It uses the configured `port` executable for searches, installs, upgrades, removals, diagnostics, maintenance, and `port select` operations. Commands that modify the system request macOS administrator authorization, and their output is streamed to the Activity pane so long-running builds remain visible and can be stopped.
+
+The main window is organized into tabs for installed, available, outdated and inactive ports, along with `port select` selections. App preferences, MacPorts configuration, and health checks live in the Settings window (⌘,). Selecting a port opens details such as its description, variants, dependencies, dependents, and installed files. Installed-port and file information is read directly from the MacPorts registry when possible, while available-port searches use the ports tree.
+
+Features include:
+
+- Search available ports by name, description, exact match, or regular expression.
+- Install ports with variant selection and pre-built binary hints.
+- Upgrade outdated ports individually or in batches, and activate or remove inactive versions.
+- View and change selected versions for groups such as Python, Clang, and GCC.
+- Run `port diagnose`, check registry integrity, and launch `port reclaim` in Terminal.
+- Configure the `port` executable path, verbosity, Activity-pane behavior, and ports sources in Settings (⌘,), and run Self-update or Sync from Settings or the MacPorts menu.
+- Use keyboard shortcuts, context menus, resizable list/detail panes, and a persistent Activity log.
+
 ## Status
 
-Early development. Currently implemented:
+Early development.
 
-- [x] List installed ports (name, version, revision, variants, active/inactive)
-- [x] Port details (description, homepage, license, dependencies, dependents, installed files)
-- [x] Clickable dependencies and dependents that jump to that port
-- [x] Full recursive dependency tree in the port detail
-- [x] Pre-built column and filter on the Outdated tab
-- [x] Selections tab: see and change `port select` versions (clang, python, …)
-- [x] Health tab: run `port diagnose` and launch `port reclaim` in Terminal
-- [x] Search available ports (Available tab: type a term, press Return)
-- [x] Install an available port (uses macOS administrator authorization)
-- [x] Live activity log (bottom panel, toggle from the toolbar) streaming install output
-- [x] Sidebar layout (Installed / Available), ready for more tabs
-- [x] Uninstall an installed port (with confirmation)
-- [x] Outdated tab: list outdated ports, upgrade one or all (uses macOS administrator authorization)
-- [x] Inactive tab: list old versions left behind by upgrades; remove one or all (uses macOS administrator authorization)
-- [x] Variant selection on install (Install opens a sheet listing the port's variants)
-- [x] Pre-built column and "Pre-built only" filter in search results
-- [x] Pre-built binary indicator (detail pane and install sheet; warns that non-default variants build from source)
-- [x] Live install status in the Available table (Downloading…, Building…, dependencies included)
-- [x] Self-update and Sync buttons in the Configuration tab (use macOS administrator authorization)
-- [x] Configuration tab with a verbose output setting (off by default)
-- [x] Resizable Activity pane (height is remembered)
-- [x] Setting to auto-open the Activity pane when a command starts (Configuration tab, on by default)
-- [x] MacPorts info in the Configuration tab (version, prefix, paths, installed count, sources)
-- [x] Custom `port` executable path in the Configuration tab (for MacPorts installed outside /opt/local)
-- [x] Add and remove ports sources (sources.conf) from the Configuration tab
-- [x] Help menu with a quick guide and MacPorts links
-- [x] Registry database path/status in Configuration and read-only registry integrity check in Health
-- [x] Native toolbar search field; a Match menu on the Available tab chooses Name, Name & Description, Exact or Regex
-- [x] Menu commands and shortcuts: Find (⌘F), tabs (⌘1–⌘7), Refresh (⌘R), Activity log (⇧⌘L), sidebar (⌃⌘S), Stop (⌘.)
-- [x] Upgrade outdated ports from the Installed tab (marked in the Version column)
-- [x] Activate (roll back to) or remove an inactive version from its detail pane
-- [x] Context menus on the port tables (copy name or install command, plus the tab's actions); ⌘C copies names
-- [x] Multi-select on Outdated and Inactive to upgrade or remove several ports with one authorization prompt
-- [x] Stop a running command from the Activity pane (interrupts `port` and the builds it started)
-- [x] Activity status in words with a running timer; failures always open the pane; Remove All asks first
-- [x] Per-port status column during upgrades on the Outdated tab
-- [x] Sidebar badges for Outdated, Inactive and Health problems
-- [x] Try Again on error screens, with help when MacPorts can't be found
-- [x] Dock icon bounces when a command ends while the app is in the background
-- [x] Change `port select` versions straight from the Selections list
-- [x] Resizable list and detail panes
+## Architecture
+
+How the main views fit together. `MacPortsApp` owns the app-wide models (`ActivityLog`, `ConfigurationModel`, `HealthModel`) and shares them between the main window and the Settings window.
+
+```
+MacPortsApp (App)
+├─ WindowGroup
+│  └─ ContentView
+│     ├─ Environment: ActivityLog, PortDetailCache, PortActions
+│     └─ NavigationSplitView
+│        ├─ Sidebar (List of BrowseMode)
+│        │   └─ Items: Installed, Available, Outdated, Inactive, Selections
+│        ├─ Content (mainPane switch on BrowseMode)
+│        │   ├─ Installed → InstalledListView
+│        │   ├─ Available → SearchResultsView (Match picker in its header)
+│        │   ├─ Outdated → OutdatedListView
+│        │   ├─ Inactive → InactiveListView
+│        │   └─ Selections → SelectionsListView (read-only table of groups)
+│        └─ Detail (detailPane switch on selection + mode)
+│            ├─ Available + selected result → PortDetailView(name:isInstalled:...)
+│            ├─ Outdated + single selection → PortDetailView(canUpgrade: true)
+│            ├─ Outdated + multi-selection → BatchSelectionView (Upgrade)
+│            ├─ Inactive + single selection → PortDetailView(inactiveVersion: ...)
+│            ├─ Inactive + multi-selection → BatchSelectionView (Remove)
+│            ├─ Installed + selected row
+│            │   ├─ Active → PortDetailView(canUpgrade: update != nil)
+│            │   └─ Inactive → PortDetailView(inactiveVersion: ...)
+│            ├─ Selections + selected group → SelectionDetailView (Select / Unset)
+│            └─ No selection → ContentUnavailableView (prompt + AppIconImage)
+│            + Activity Pane (ActivityPane) appended below detail when visible
+├─ Settings (⌘,) → SettingsView
+│  ├─ General → GeneralSettingsView (Activity options, port executable path)
+│  ├─ MacPorts → MacPortsSettingsView (installation facts, Self-update/Sync, sources)
+│  └─ Health → HealthView (port diagnose, registry integrity, port reclaim)
+├─ Window "Help" → HelpView
+└─ Commands → AppCommands (Find, View menu tabs/panes, MacPorts menu)
+
+Toolbars (ContentView.toolbar)
+├─ Activity toggle (ActivityToolbarIcon)
+├─ Pre-built only toggles (Available/Outdated)
+├─ Upgrade buttons (Outdated)
+├─ Remove buttons (Inactive)
+├─ Refresh
+└─ Search/filter field (.searchable; Installed, Available, Outdated, Inactive)
+
+Sheets & Dialogs (ContentView)
+├─ .sheet → InstallOptionsView (on install request)
+├─ .confirmationDialog → Uninstall confirmation
+├─ .confirmationDialog → Activate confirmation
+└─ .confirmationDialog → Remove All Inactive confirmation
+
+PortDetailView (when shown)
+├─ Header (icon, title, subtitle, action buttons, binary badge)
+├─ Info Section
+│   └─ Grid rows: categories, homepage, license, maintainers, variants, platforms, sub-ports, library/build/runtime deps (portLinks)
+├─ Dependents Section
+│   └─ portLinks (open other ports via onOpenPort)
+├─ Dependency Tree Section
+│   └─ DisclosureGroup → TreeRow (recursive)
+└─ Files Section
+    └─ DisclosureGroup → FileListView
+
+InstallOptionsView (sheet)
+├─ Variants list (Toggle per variant)
+└─ Build notice (binary availability / customized variants)
+```
 
 ## App icon
 
@@ -55,8 +96,8 @@ The About panel and the empty state show the app icon (`Resources/AppIcon.png`).
 ## Requirements
 
 - macOS 26 (Tahoe) or later
-- MacPorts installed at `/opt/local` (`/opt/local/bin/port`)
-- Xcode / Swift 6 toolchain
+- MacPorts, by default at `/opt/local` (`/opt/local/bin/port`); another location can be set in Settings → General
+- Xcode 26 (Swift 6.2 or later)
 
 ## Build and run
 
@@ -69,13 +110,16 @@ Or open `Package.swift` in Xcode and run the `MacPortsApp` scheme.
 
 ## Layout
 
-- `Sources/PortsKit`: UI-independent library. Wraps the `port` CLI and parses its output.
+- `Sources/PortsKit`: UI-independent library. Wraps the `port` CLI, reads the MacPorts registry, and parses `port` output.
 - `Sources/PortsApp`: SwiftUI application.
-- `Tests/PortsKitTests`: unit tests for the parser.
+- `Tests/PortsKitTests`: unit tests for PortsKit, plus live tests that run only when MacPorts is installed.
+- `Tests/MacPortsAppTests`: unit tests for the app's models and actions.
 
 ## Development
 
 This repo uses git flow (`main`, `develop`, `feature/*`, ...). Start work with `git flow feature start <name>`.
+
+CI (`.github/workflows/ci.yml`) builds and tests every push and pull request to `main` and `develop`: on the GitHub-hosted `macos-26` runner on GitHub, and on the self-hosted `macos-arm64` runner on Gitea.
 
 ## Release package
 

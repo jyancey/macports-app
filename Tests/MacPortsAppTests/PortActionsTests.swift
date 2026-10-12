@@ -1,3 +1,8 @@
+// PortActionsTests.swift - Tests for the port actions, using fake port commands.
+//
+// Created by John Yancey on 06/12/2024.
+// Copyright © 2026 John Yancey. All rights reserved.
+//
 import Testing
 
 @testable import MacPortsApp

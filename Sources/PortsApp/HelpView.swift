@@ -1,3 +1,8 @@
+// HelpView.swift - The in-app help window.
+//
+// Created by John Yancey on 06/12/2024.
+// Copyright © 2026 John Yancey. All rights reserved.
+//
 import SwiftUI
 
 struct HelpView: View {
@@ -23,12 +28,12 @@ struct HelpView: View {
         section(
           "Health",
           [
-            "The Health tab runs `port diagnose` and lists any warnings. Reclaim in Terminal opens Terminal running `sudo port reclaim`, which asks before removing anything."
+            "The Health pane in Settings (⌘,) runs `port diagnose` and lists any warnings, and checks the registry database. Reclaim in Terminal opens Terminal running `sudo port reclaim`, which asks before removing anything."
           ])
         section(
           "Selections",
           [
-            "The Selections tab lists `port select` groups (clang, python, gcc…) and which version each uses. Pick a version from the menu in the Selected column, or choose a group to Select a version or Unset it (uses macOS administrator authorization)."
+            "The Selections tab lists `port select` groups (clang, python, gcc…) and which version each uses. Choose a group to Select a version or Unset it (uses macOS administrator authorization)."
           ])
         section(
           "Upgrading and cleanup",
@@ -50,13 +55,14 @@ struct HelpView: View {
           "Keyboard shortcuts",
           [
             "⌘F: search or filter ports (in the Activity log or a file list: find in that text).",
-            "⌘1 to ⌘7: switch tabs. ⌘R: refresh. ⇧⌘L: show or hide the Activity log. ⌃⌘S: show or hide the sidebar.",
+            "⌘1 to ⌘5: switch tabs. ⌘,: open Settings. ⌘R: refresh. ⇧⌘L: show or hide the Activity log. ⌃⌘S: show or hide the sidebar.",
           ])
         section(
-          "Configuration",
+          "Settings",
           [
-            "Verbose output shows full port output but is slower.",
-            "Self-update and Sync refresh MacPorts and the ports tree.",
+            "General sets Activity pane behavior, verbose output (full port output, but slower) and the location of the port executable.",
+            "MacPorts shows the installation's version, paths and sources, and lets you add or remove sources.",
+            "Self-update and Sync (in the MacPorts pane or the MacPorts menu) refresh MacPorts and the ports tree.",
             "Commands that change your system use macOS administrator authorization.",
           ])
       }

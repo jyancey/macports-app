@@ -1,4 +1,9 @@
 // swift-tools-version: 6.2
+// Package.swift - Swift package manifest for the MacPortsApp app, its PortsKit library, and their tests.
+//
+// Created by John Yancey on 06/12/2024.
+// Copyright © 2026 John Yancey. All rights reserved.
+//
 import PackageDescription
 
 let package = Package(

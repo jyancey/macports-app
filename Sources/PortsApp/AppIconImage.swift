@@ -1,3 +1,8 @@
+// AppIconImage.swift - Shows the app icon loaded from the bundled AppIcon.png.
+//
+// Created by John Yancey on 06/12/2024.
+// Copyright © 2026 John Yancey. All rights reserved.
+//
 import SwiftUI
 
 /// The app icon, loaded from the bundled `AppIcon.png`.

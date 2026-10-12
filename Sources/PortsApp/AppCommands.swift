@@ -1,3 +1,8 @@
+// AppCommands.swift - Menu bar commands for finding, switching tabs, the Activity log, and MacPorts maintenance.
+//
+// Created by John Yancey on 06/12/2024.
+// Copyright © 2026 John Yancey. All rights reserved.
+//
 import AppKit
 import SwiftUI
 
@@ -22,12 +27,15 @@ extension FocusedValues {
   @Entry var windowActions: WindowActions?
 }
 
-/// Menu bar commands: Find, and View menu items for the sidebar, the Activity
-/// log, the tabs, Refresh and stopping the running command.
+/// Menu bar commands: Find; View menu items for the sidebar, the Activity
+/// log, the tabs, Refresh and stopping the running command; and a MacPorts
+/// menu for updating MacPorts.
 struct AppCommands: Commands {
   @FocusedValue(\.windowActions) private var window
   /// App-wide, so Stop works whichever window is in front.
   let activity: ActivityLog
+  /// Reread after Self-update or Sync.
+  let configuration: ConfigurationModel
 
   var body: some Commands {
     // Replaces the standard Find submenu so that Find (⌘F) also reaches the
@@ -72,6 +80,12 @@ struct AppCommands: Commands {
         .keyboardShortcut(".")
         .disabled(!activity.canStop)
       Divider()
+    }
+    CommandMenu("MacPorts") {
+      ForEach(MacPortsMaintenance.allCases, id: \.self) { task in
+        Button(task.title) { task.run(activity: activity, configuration: configuration) }
+          .disabled(activity.isRunning)
+      }
     }
   }
 

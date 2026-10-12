@@ -1,3 +1,8 @@
+// BinaryChecksTests.swift - Tests for batched pre-built binary checks.
+//
+// Created by John Yancey on 06/12/2024.
+// Copyright © 2026 John Yancey. All rights reserved.
+//
 import PortsKit
 import Testing
 

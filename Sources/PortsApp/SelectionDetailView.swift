@@ -1,3 +1,8 @@
+// SelectionDetailView.swift - Shows a port select group and lets the user pick or unset its version.
+//
+// Created by John Yancey on 06/12/2024.
+// Copyright © 2026 John Yancey. All rights reserved.
+//
 import PortsKit
 import SwiftUI
 

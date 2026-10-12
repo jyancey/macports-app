@@ -1,3 +1,8 @@
+// Freshness.swift - Tracks when a tab's data was loaded so it can be reused until stale.
+//
+// Created by John Yancey on 06/12/2024.
+// Copyright © 2026 John Yancey. All rights reserved.
+//
 /// When a tab's data was last loaded, so showing the tab again can reuse it
 /// until it is older than `maxAge` or something invalidates it.
 struct Freshness {

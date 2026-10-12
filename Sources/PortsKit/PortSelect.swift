@@ -1,3 +1,8 @@
+// PortSelect.swift - Represents `port select` groups and parses their output.
+//
+// Created by John Yancey on 06/12/2024.
+// Copyright © 2026 John Yancey. All rights reserved.
+//
 import Foundation
 
 /// A `port select` group (e.g. clang) with the option currently selected

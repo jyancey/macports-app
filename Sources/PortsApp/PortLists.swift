@@ -1,3 +1,8 @@
+// PortLists.swift - The Installed, Available, Outdated, Inactive, and Selections list views.
+//
+// Created by John Yancey on 06/12/2024.
+// Copyright © 2026 John Yancey. All rights reserved.
+//
 import PortsKit
 import SwiftUI
 
@@ -57,8 +62,8 @@ struct InstalledListView: View {
   let filter: String
   @Binding var sortOrder: [KeyPathComparator<InstalledPort>]
   @Binding var selection: InstalledPort.ID?
-  /// Opens the Configuration tab, where the `port` path is set.
-  var showConfiguration: () -> Void = {}
+  /// Opens Settings, where the `port` path is set.
+  var showPortLocation: () -> Void = {}
 
   private static let installPage = URL(string: "https://www.macports.org/install.php")!
 
@@ -73,7 +78,7 @@ struct InstalledListView: View {
           } extraActions: {
             if model.isPortMissing {
               Link("Get MacPorts", destination: Self.installPage)
-              Button("Set port Location…", action: showConfiguration)
+              Button("Set port Location…", action: showPortLocation)
             }
           }
         } else if model.isLoading && model.ports.isEmpty {
@@ -386,8 +391,6 @@ struct OutdatedListView: View {
 
 struct SelectionsListView: View {
   let model: SelectionsModel
-  /// Passed in for the table cells, like the other lists.
-  let activity: ActivityLog
   @Binding var selection: String?
 
   var body: some View {
@@ -412,29 +415,18 @@ struct SelectionsListView: View {
     } else {
       Table(model.groups, selection: $selection) {
         TableColumn("Group", value: \.name).width(min: 100, ideal: 140)
+        // Changing the selection happens in the detail pane; this shows a
+        // choice being applied there until the reload confirms it.
         TableColumn("Selected") { group in
-          Picker("Selected", selection: choice(for: group)) {
-            ForEach(group.options.filter { $0 != "none" }, id: \.self) { Text($0).tag($0) }
-            Divider()
-            Text("None").tag("none")
+          let selected = model.shownSelection(group)
+          if selected == "none" {
+            Text("None").foregroundStyle(.secondary)
+          } else {
+            Text(selected)
           }
-          .labelsHidden()
-          .pickerStyle(.menu)
-          .controlSize(.small)
-          .fixedSize()
-          .disabled(activity.isRunning)
-          .help("Choose which version \(group.name) uses (uses administrator authorization)")
         }
       }
     }
-  }
-}
-
-extension SelectionsListView {
-  fileprivate func choice(for group: PortSelectGroup) -> Binding<String> {
-    Binding(
-      get: { model.shownSelection(group) },
-      set: { option in Task { await model.select(option, in: group, activity: activity) } })
   }
 }
 

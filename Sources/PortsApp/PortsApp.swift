@@ -1,3 +1,8 @@
+// PortsApp.swift - Main entry point for the MacPortsApp SwiftUI application.
+//
+// Created by John Yancey on 06/12/2024.
+// Copyright © 2026 John Yancey. All rights reserved.
+//
 import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -12,9 +17,9 @@ enum AppInfo {
   static let name = "MacPortsApp"
   // Fallback used when run unbundled (`swift run`); packaged builds read Info.plist.
   static let version =
-    Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.3.1"
+    Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.4.0"
   static let build =
-    Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0.3.1"
+    Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0.4.0"
   static let author = "John Yancey"
   static let copyright = "© 2026 John Yancey"
 }
@@ -23,11 +28,14 @@ enum AppInfo {
 struct MacPortsApp: App {
   @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
   @State private var activity = ActivityLog()
+  // Shared by every window and the Settings window.
+  @State private var configuration = ConfigurationModel()
+  @State private var health = HealthModel()
   @Environment(\.openWindow) private var openWindow
 
   var body: some Scene {
     WindowGroup {
-      ContentView(activity: activity)
+      ContentView(activity: activity, configuration: configuration)
         .environment(activity)
         // Must be at least the sum of the three columns' minimum widths
         // (150 + 380 + 590), or the detail column gets squeezed below its
@@ -35,7 +43,7 @@ struct MacPortsApp: App {
         .frame(minWidth: 1170, minHeight: 500)
     }
     .commands {
-      AppCommands(activity: activity)
+      AppCommands(activity: activity, configuration: configuration)
       CommandGroup(replacing: .appInfo) {
         Button("About \(AppInfo.name)") { showAbout() }
       }
@@ -52,6 +60,10 @@ struct MacPortsApp: App {
       }
     }
     Window("\(AppInfo.name) Help", id: "help") { HelpView() }
+    Settings {
+      SettingsView(configuration: configuration, health: health)
+        .environment(activity)
+    }
   }
 
   private func showAbout() {

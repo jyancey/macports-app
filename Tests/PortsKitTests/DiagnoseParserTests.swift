@@ -1,3 +1,8 @@
+// DiagnoseParserTests.swift - Tests for parsing `port diagnose` output.
+//
+// Created by John Yancey on 06/12/2024.
+// Copyright © 2026 John Yancey. All rights reserved.
+//
 import Testing
 
 @testable import PortsKit

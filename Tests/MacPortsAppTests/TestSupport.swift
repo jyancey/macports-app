@@ -1,3 +1,8 @@
+// TestSupport.swift - Shared helpers for the app tests.
+//
+// Created by John Yancey on 06/12/2024.
+// Copyright © 2026 John Yancey. All rights reserved.
+//
 import Testing
 
 /// Holds each fake query until the test opens its gate, and records every call.

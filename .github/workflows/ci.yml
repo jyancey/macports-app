@@ -1,0 +1,78 @@
+name: CI
+
+on:
+    push:
+        branches:
+            - main
+            - develop
+    pull_request:
+        branches:
+            - main
+            - develop
+
+# A newer push to the same branch or pull request cancels the run in progress.
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+# Package.swift needs Swift tools 6.2 and the macOS 26 SDK, which come with
+# Xcode 26. Each job runs only where its runner exists, so neither waits
+# forever for a runner that isn't there.
+jobs:
+    # The GitHub-hosted macOS 26 (arm64) image, on github.com only.
+    build-and-test-hosted:
+        name: build-and-test (macos-26)
+        if: github.server_url == 'https://github.com'
+        runs-on: macos-26
+
+        steps:
+            - uses: actions/checkout@v7
+
+            - name: Set up Xcode 26
+              uses: maxim-lobanov/setup-xcode@v1
+              with:
+                  xcode-version: "26"
+
+            - name: Print Swift version
+              run: swift --version
+
+            - name: Print Xcode version
+              run: xcodebuild -version
+
+            - name: Build
+              run: swift build
+
+            # The live tests skip themselves when MacPorts isn't installed,
+            # as on this runner.
+            - name: Test
+              run: swift test
+
+    # The local Gitea act_runner (label macos-arm64, host mode), everywhere
+    # but github.com. It uses the Xcode already selected on the machine, and
+    # has MacPorts, so the live tests run.
+    build-and-test-local:
+        name: build-and-test (macos-arm64)
+        if: github.server_url != 'https://github.com'
+        runs-on: macos-arm64
+
+        steps:
+            - uses: actions/checkout@v7
+
+            # The runner's launchd PATH leaves out /bin and /sbin, and the
+            # process tests' stand-in scripts need sleep and sh from there.
+            - name: Add /bin and /sbin to PATH
+              run: |
+                  echo /sbin >> "$GITHUB_PATH"
+                  echo /bin >> "$GITHUB_PATH"
+
+            - name: Print Swift version
+              run: swift --version
+
+            - name: Print Xcode version
+              run: xcodebuild -version
+
+            - name: Build
+              run: swift build
+
+            - name: Test
+              run: swift test

@@ -1,3 +1,8 @@
+// MacPortsConfigTests.swift - Tests for reading and changing MacPorts configuration files.
+//
+// Created by John Yancey on 06/12/2024.
+// Copyright © 2026 John Yancey. All rights reserved.
+//
 import Foundation
 import Testing
 

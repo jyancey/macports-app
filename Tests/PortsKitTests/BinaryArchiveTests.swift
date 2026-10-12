@@ -1,3 +1,8 @@
+// BinaryArchiveTests.swift - Tests for binary archive parsing and matching.
+//
+// Created by John Yancey on 06/12/2024.
+// Copyright © 2026 John Yancey. All rights reserved.
+//
 import Testing
 
 @testable import PortsKit

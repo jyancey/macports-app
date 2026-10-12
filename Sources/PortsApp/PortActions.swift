@@ -1,3 +1,8 @@
+// PortActions.swift - Starts install, upgrade, uninstall, and activate commands through the Activity log.
+//
+// Created by John Yancey on 06/12/2024.
+// Copyright © 2026 John Yancey. All rights reserved.
+//
 import PortsKit
 import SwiftUI
 
