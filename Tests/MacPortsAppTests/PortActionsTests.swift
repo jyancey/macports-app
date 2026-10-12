@@ -198,7 +198,7 @@ actor FakePortCommands: PortCommandRunner {
     #expect(actions.progressText(for: "zlib", fallback: "Working…") == "Building…")
     #expect(actions.progressText(for: "xz", fallback: "Working…") == "Working…")
     await gates.open("built")
-    await run.value
+    _ = await run.value
     #expect(actions.progressText(for: "zlib", fallback: "Working…") == "Working…")
   }
 
@@ -218,7 +218,7 @@ actor FakePortCommands: PortCommandRunner {
     #expect(await runner.calls.isEmpty)
     #expect(reloads.count == 0)
     await gates.open("busy")
-    await busy.value
+    _ = await busy.value
   }
 }
 
@@ -246,7 +246,7 @@ struct GatedUpgrades: PortCommandRunner {
   {}
 }
 
-@Test func batchSummaryListsTheFirstItemsAndCountsTheRest() {
+@MainActor @Test func batchSummaryListsTheFirstItemsAndCountsTheRest() {
   #expect(BatchSelectionView.summary(["a", "b"], limit: 3) == "a\nb")
   #expect(BatchSelectionView.summary(["a", "b", "c", "d", "e"], limit: 3) == "a\nb\nc\nand 2 more")
 }

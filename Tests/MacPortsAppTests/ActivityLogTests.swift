@@ -79,7 +79,7 @@ import Testing
     #expect(log.runningTitle == "sudo port install zlib")
     #expect(log.startedAt.map { $0 >= before } == true)
     await gates.open("run")
-    await run.value
+    _ = await run.value
     #expect(log.runningTitle == nil)
     #expect(log.startedAt == nil)
   }
