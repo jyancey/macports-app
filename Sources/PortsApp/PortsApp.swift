@@ -12,9 +12,9 @@ enum AppInfo {
   static let name = "MacPortsApp"
   // Fallback used when run unbundled (`swift run`); packaged builds read Info.plist.
   static let version =
-    Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.3.0"
+    Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.3.1"
   static let build =
-    Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0.3.0"
+    Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0.3.1"
   static let author = "John Yancey"
   static let copyright = "© 2026 John Yancey"
 }
@@ -29,7 +29,10 @@ struct MacPortsApp: App {
     WindowGroup {
       ContentView(activity: activity)
         .environment(activity)
-        .frame(minWidth: 900, minHeight: 500)
+        // Must be at least the sum of the three columns' minimum widths
+        // (150 + 380 + 590), or the detail column gets squeezed below its
+        // minimum and its toolbar controls spill into the content column.
+        .frame(minWidth: 1170, minHeight: 500)
     }
     .commands {
       AppCommands(activity: activity)

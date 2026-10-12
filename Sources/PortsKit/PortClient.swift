@@ -80,7 +80,25 @@ public struct PortClient: Sendable {
     FileManager.default.isExecutableFile(atPath: executableURL.path)
   }
 
+  /// The registry database for this MacPorts installation, if it can be read.
+  var registry: PortRegistry? {
+    let path = dataPath() + "/registry/registry.db"
+    return FileManager.default.isReadableFile(atPath: path) ? PortRegistry(path: path) : nil
+  }
+
+  /// Reads the registry directly; if it can't be opened or queried, asks `port`.
+  private func fromRegistry<T>(
+    _ query: (PortRegistry) throws -> T, orRun fallback: () async throws -> T
+  ) async throws -> T {
+    if let registry, let result = try? query(registry) { return result }
+    return try await fallback()
+  }
+
   public func installedPorts() async throws -> [InstalledPort] {
+    try await fromRegistry({ try $0.installedPorts() }, orRun: installedPortsFromCommand)
+  }
+
+  func installedPortsFromCommand() async throws -> [InstalledPort] {
     let output = try await run(["-q", "installed"])
     return PortListParser.parseInstalled(output)
   }
@@ -106,11 +124,21 @@ public struct PortClient: Sendable {
 
   /// Files installed by the port (empty if the port isn't installed).
   public func contents(of name: String) async throws -> [String] {
+    try await fromRegistry(
+      { try $0.files(of: name) }, orRun: { try await contentsFromCommand(of: name) })
+  }
+
+  func contentsFromCommand(of name: String) async throws -> [String] {
     PortInfoParser.parseFileList(try await run(["-q", "contents", name]))
   }
 
   /// Installed ports that depend on the given port.
   public func dependents(of name: String) async throws -> [String] {
+    try await fromRegistry(
+      { try $0.dependents(of: name) }, orRun: { try await dependentsFromCommand(of: name) })
+  }
+
+  func dependentsFromCommand(of name: String) async throws -> [String] {
     PortInfoParser.parseDependents(try await run(["-q", "dependents", name]))
   }
 

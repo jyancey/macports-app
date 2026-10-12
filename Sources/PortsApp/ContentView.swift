@@ -332,7 +332,7 @@ struct ContentView: View {
     model.ports.first { $0.id == selection }
   }
 
-  @State private var isSidebarVisible = true
+  @State private var columnVisibility = NavigationSplitViewVisibility.all
   @FocusState private var searchFocused: Bool
 
   init(activity: ActivityLog) {
@@ -351,8 +351,8 @@ struct ContentView: View {
   }
 
   private var currentMode: BrowseMode { mode ?? .installed }
-  private var isSinglePaneMode: Bool {
-    currentMode == .health || currentMode == .configuration
+  private var isSidebarVisible: Bool {
+    columnVisibility != .doubleColumn && columnVisibility != .detailOnly
   }
 
   var body: some View {
@@ -433,7 +433,7 @@ struct ContentView: View {
       mode: currentMode,
       showMode: { mode = $0 },
       isSidebarVisible: isSidebarVisible,
-      toggleSidebar: { isSidebarVisible.toggle() },
+      toggleSidebar: { columnVisibility = isSidebarVisible ? .doubleColumn : .all },
       isActivityVisible: activity.isVisible,
       toggleActivity: { activity.isVisible.toggle() },
       canRefresh: !(model.isLoading || outdatedModel.isLoading),
@@ -538,87 +538,69 @@ struct ContentView: View {
   }
 
   private var split: some View {
-    HStack(spacing: 0) {
-      if isSidebarVisible {
-        VStack(spacing: 0) {
-          List(BrowseMode.allCases, selection: $mode) { item in
-            Label(item.rawValue, systemImage: item.symbol)
-              .badge(badgeCount(item))
-              .tag(item)
-          }
-          .listStyle(.sidebar)
-        }
-        .frame(minWidth: 150, idealWidth: 170, maxWidth: 220)
-
-        Divider()
+    NavigationSplitView(columnVisibility: $columnVisibility) {
+      List(BrowseMode.allCases, selection: $mode) { item in
+        Label(item.rawValue, systemImage: item.symbol)
+          .badge(badgeCount(item))
+          .tag(item)
       }
-
+      .navigationSplitViewColumnWidth(min: 150, ideal: 170, max: 220)
+    } content: {
+      mainPane
+        .navigationSplitViewColumnWidth(min: 380, ideal: 460)
+    } detail: {
       VStack(spacing: 0) {
-        Group {
-          if isSinglePaneMode {
-            mainPane
-          } else {
-            // An AppKit split view, so the divider between the list and the
-            // detail can be dragged.
-            HSplitView {
-              mainPane
-                .frame(minWidth: 380, idealWidth: 460, maxHeight: .infinity)
-              detailPane
-                .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
-            }
-          }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        detailPane
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
         if activity.isVisible {
           ActivityPane()
         }
       }
+      // At least as wide as the toolbar's trailing controls need in their
+      // widest mode (Outdated: Activity Log, pre-built toggle, two upgrade
+      // buttons, Refresh, and the search field measure ~530pt even fully
+      // compacted to icon-only), plus margin, so they can never spill left
+      // past the content/detail divider at small window sizes.
+      .navigationSplitViewColumnWidth(min: 590, ideal: 590)
     }
-    .frame(maxWidth: .infinity, maxHeight: .infinity)
-    .toolbar {
+    .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
+    .toolbar { toolbarItems }
+  }
+
+  @ToolbarContentBuilder private var toolbarItems: some ToolbarContent {
+    ToolbarItem {
+      Button {
+        activity.isVisible.toggle()
+      } label: {
+        Label {
+          Text("Activity Log")
+        } icon: {
+          ActivityToolbarIcon(log: activity)
+        }
+      }
+      .help(ActivityToolbarIcon.help(activity))
+    }
+    if currentMode == .available {
       ToolbarItem {
-        Button(
-          isSidebarVisible ? "Hide Sidebar" : "Show Sidebar",
-          systemImage: "sidebar.left"
-        ) {
-          isSidebarVisible.toggle()
-        }
-        .help(isSidebarVisible ? "Hide the navigation sidebar" : "Show the navigation sidebar")
+        Toggle("Pre-built only", systemImage: "checkmark.seal", isOn: $prebuiltOnly)
+          .help(
+            "Show only results that have a pre-built binary for this Mac (first 100 results are checked)"
+          )
       }
+    }
+    if currentMode == .outdated {
       ToolbarItem {
-        Button {
-          activity.isVisible.toggle()
-        } label: {
-          Label {
-            Text("Activity Log")
-          } icon: {
-            ActivityToolbarIcon(log: activity)
-          }
-        }
-        .help(ActivityToolbarIcon.help(activity))
+        Toggle("Pre-built only", systemImage: "checkmark.seal", isOn: $prebuiltOnly)
+          .help("Show only updates that have a pre-built binary for this Mac")
       }
-      if currentMode == .available {
-        ToolbarItem {
-          Toggle("Pre-built only", systemImage: "checkmark.seal", isOn: $prebuiltOnly)
-            .help(
-              "Show only results that have a pre-built binary for this Mac (first 100 results are checked)"
-            )
-        }
-      }
-      if currentMode == .outdated {
-        ToolbarItem {
-          Toggle("Pre-built only", systemImage: "checkmark.seal", isOn: $prebuiltOnly)
-            .help("Show only updates that have a pre-built binary for this Mac")
-        }
-        ToolbarItem { upgradeSelectedButton }
-        ToolbarItem { upgradeAllButton }
-      }
-      if currentMode == .inactive { ToolbarItemGroup { removeInactiveButtons } }
-      ToolbarItem {
-        Button("Refresh", systemImage: "arrow.clockwise") { Task { await refreshAll() } }
-          .disabled(model.isLoading || outdatedModel.isLoading)
-          .help("Reload the port lists (⌘R)")
-      }
+      ToolbarItem { upgradeSelectedButton }
+      ToolbarItem { upgradeAllButton }
+    }
+    if currentMode == .inactive { ToolbarItemGroup { removeInactiveButtons } }
+    ToolbarItem {
+      Button("Refresh", systemImage: "arrow.clockwise") { Task { await refreshAll() } }
+        .disabled(model.isLoading || outdatedModel.isLoading)
+        .help("Reload the port lists (⌘R)")
     }
   }
 
@@ -742,14 +724,13 @@ struct ContentView: View {
         let group = selectionsModel.groups.first(where: { $0.id == groupSelection })
       {
         SelectionDetailView(group: group, model: selectionsModel)
-      } else if currentMode == .health {
-        ContentUnavailableView(
-          "Health", systemImage: "stethoscope",
-          description: Text("Check your MacPorts environment and reclaim disk space."))
-      } else if currentMode == .configuration {
-        ContentUnavailableView(
-          "Configuration", systemImage: "gearshape",
-          description: Text("Settings apply to the next command you run."))
+      } else if currentMode == .health || currentMode == .configuration {
+        // These are single-pane settings screens shown in the content column;
+        // the detail column has nothing to add, so just show the app's branding
+        // instead of restating the content column's title.
+        AppIconImage(size: 96)
+          .opacity(0.5)
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {
         ContentUnavailableView {
           Text("Select a port").font(.title2)
