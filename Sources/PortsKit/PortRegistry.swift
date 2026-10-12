@@ -1,3 +1,8 @@
+// PortRegistry.swift - Read-only access to the MacPorts registry database.
+//
+// Created by John Yancey on 06/12/2024.
+// Copyright © 2026 John Yancey. All rights reserved.
+//
 import Foundation
 import SQLite3
 

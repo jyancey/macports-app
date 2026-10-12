@@ -1,3 +1,8 @@
+// InstallProgress.swift - Tracks the progress of MacPorts installations.
+//
+// Created by John Yancey on 06/12/2024.
+// Copyright © 2026 John Yancey. All rights reserved.
+//
 import Foundation
 
 /// Where a port is in an install, as reported by `port -v install` output.

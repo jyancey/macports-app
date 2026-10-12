@@ -1,3 +1,8 @@
+// ChildProcess.swift - Runs a child process without blocking Swift concurrency's shared threads.
+//
+// Created by John Yancey on 06/12/2024.
+// Copyright © 2026 John Yancey. All rights reserved.
+//
 import Foundation
 import Synchronization
 

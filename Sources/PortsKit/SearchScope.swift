@@ -1,3 +1,8 @@
+// SearchScope.swift - Search matching modes and ranking for available ports.
+//
+// Created by John Yancey on 06/12/2024.
+// Copyright © 2026 John Yancey. All rights reserved.
+//
 import Foundation
 
 /// How a search term is matched against available ports.

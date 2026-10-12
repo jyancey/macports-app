@@ -1,3 +1,8 @@
+// TabModelTests.swift - Tests for the tab and settings models.
+//
+// Created by John Yancey on 06/12/2024.
+// Copyright © 2026 John Yancey. All rights reserved.
+//
 import Foundation
 import Testing
 
