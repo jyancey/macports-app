@@ -88,5 +88,7 @@ jobs:
               env:
                   API: ${{ github.api_url }}/repos/${{ github.repository }}
                   TOKEN: ${{ github.token }}
-              run: scripts/gitea-release.sh "$API" "$TOKEN" "$TAG" "$RUNNER_TEMP/notes.md" \
-                  dist/MacPortsApp-*.zip dist/MacPortsApp-*.pkg dist/MacPortsApp-*.dmg
+              # A block scalar, so the line continuation reaches bash intact.
+              run: |
+                  scripts/gitea-release.sh "$API" "$TOKEN" "$TAG" "$RUNNER_TEMP/notes.md" \
+                      dist/MacPortsApp-*.zip dist/MacPortsApp-*.pkg dist/MacPortsApp-*.dmg
