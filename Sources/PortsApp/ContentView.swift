@@ -405,6 +405,11 @@ struct ContentView: View {
       }
       .task {
         await model.load()
+        // Selecting the first port here, rather than leaving the detail pane
+        // empty, makes NavigationSplitView settle its column widths during
+        // launch instead of jumping them (and the divider under the toolbar)
+        // on the user's first click.
+        if selection == nil { selection = model.ports.first?.id }
         // Load the outdated list up front so its tab opens at once and the
         // sidebar can show how many updates there are.
         await outdatedModel.loadIfStale()
@@ -556,7 +561,12 @@ struct ContentView: View {
           ActivityPane()
         }
       }
-      .navigationSplitViewColumnWidth(min: 320, ideal: 420)
+      // At least as wide as the toolbar's trailing controls need in their
+      // widest mode (Outdated: Activity Log, pre-built toggle, two upgrade
+      // buttons, Refresh, and the search field measure ~530pt even fully
+      // compacted to icon-only), plus margin, so they can never spill left
+      // past the content/detail divider at small window sizes.
+      .navigationSplitViewColumnWidth(min: 590, ideal: 590)
     }
     .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
     .toolbar { toolbarItems }
@@ -719,14 +729,13 @@ struct ContentView: View {
         let group = selectionsModel.groups.first(where: { $0.id == groupSelection })
       {
         SelectionDetailView(group: group, model: selectionsModel)
-      } else if currentMode == .health {
-        ContentUnavailableView(
-          "Health", systemImage: "stethoscope",
-          description: Text("Check your MacPorts environment and reclaim disk space."))
-      } else if currentMode == .configuration {
-        ContentUnavailableView(
-          "Configuration", systemImage: "gearshape",
-          description: Text("Settings apply to the next command you run."))
+      } else if currentMode == .health || currentMode == .configuration {
+        // These are single-pane settings screens shown in the content column;
+        // the detail column has nothing to add, so just show the app's branding
+        // instead of restating the content column's title.
+        AppIconImage(size: 96)
+          .opacity(0.5)
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {
         ContentUnavailableView {
           Text("Select a port").font(.title2)

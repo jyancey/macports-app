@@ -29,7 +29,10 @@ struct MacPortsApp: App {
     WindowGroup {
       ContentView(activity: activity)
         .environment(activity)
-        .frame(minWidth: 900, minHeight: 500)
+        // Must be at least the sum of the three columns' minimum widths
+        // (150 + 380 + 590), or the detail column gets squeezed below its
+        // minimum and its toolbar controls spill into the content column.
+        .frame(minWidth: 1170, minHeight: 500)
     }
     .commands {
       AppCommands(activity: activity)
