@@ -1,3 +1,8 @@
+// ActivityLog.swift - Collects and displays the output of the port commands the app runs.
+//
+// Created by John Yancey on 06/12/2024.
+// Copyright © 2026 John Yancey. All rights reserved.
+//
 import AppKit
 import PortsKit
 import SwiftUI

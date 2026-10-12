@@ -1,7 +1,12 @@
+// HealthView.swift - Health settings pane: port diagnose, registry integrity, and port reclaim.
+//
+// Created by John Yancey on 06/12/2024.
+// Copyright © 2026 John Yancey. All rights reserved.
+//
 import PortsKit
 import SwiftUI
 
-/// Health tab results. Owned by `ContentView` so they survive switching tabs:
+/// Health pane results. Owned by the app so they survive closing Settings:
 /// `port diagnose` takes seconds, so it runs once on the first visit and then
 /// only when asked.
 @MainActor
@@ -58,7 +63,7 @@ final class HealthModel {
       findings = try await diagnose()
       failure = nil
     } catch is CancellationError {
-      // Leaving the tab cancels the first check; the next visit runs it again.
+      // Leaving the pane cancels the first check; the next visit runs it again.
     } catch {
       failure = error.localizedDescription
     }
@@ -80,6 +85,9 @@ final class HealthModel {
 /// launches `port reclaim` in Terminal.
 struct HealthView: View {
   let model: HealthModel
+  /// Where the registry is and whether it can be read, shown before the
+  /// integrity check has run.
+  let configuration: ConfigurationModel
 
   var body: some View {
     Form {
@@ -129,6 +137,19 @@ struct HealthView: View {
           case .unavailable(let message):
             StatusLabel(message, systemImage: "exclamationmark.triangle.fill", color: .orange)
           }
+        } else if let info = configuration.info {
+          LabeledContent("Database") {
+            Text(info.registryPath).textSelection(.enabled)
+              .multilineTextAlignment(.trailing)
+          }
+          if configuration.registryReadable {
+            StatusLabel(
+              "Present and readable.", systemImage: "checkmark.circle.fill", color: .green)
+          } else {
+            StatusLabel(
+              "Missing or unreadable.", systemImage: "exclamationmark.triangle.fill", color: .orange
+            )
+          }
         }
       } header: {
         Text("Registry integrity")
@@ -156,6 +177,7 @@ struct HealthView: View {
     }
     .formStyle(.grouped)
     .task { await model.checkIfNeeded() }
+    .task { await configuration.loadIfStale() }
   }
 
   @ViewBuilder private var diagnoseResults: some View {

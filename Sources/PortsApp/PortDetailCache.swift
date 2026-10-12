@@ -1,3 +1,8 @@
+// PortDetailCache.swift - Caches what the detail pane has loaded for each port.
+//
+// Created by John Yancey on 06/12/2024.
+// Copyright © 2026 John Yancey. All rights reserved.
+//
 import Observation
 import PortsKit
 
