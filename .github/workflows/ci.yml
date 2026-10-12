@@ -58,6 +58,13 @@ jobs:
         steps:
             - uses: actions/checkout@v4
 
+            # The runner's launchd PATH leaves out /bin and /sbin, and the
+            # process tests' stand-in scripts need sleep and sh from there.
+            - name: Add /bin and /sbin to PATH
+              run: |
+                  echo /sbin >> "$GITHUB_PATH"
+                  echo /bin >> "$GITHUB_PATH"
+
             - name: Print Swift version
               run: swift --version
 
