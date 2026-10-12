@@ -65,14 +65,17 @@ jobs:
                   echo /sbin >> "$GITHUB_PATH"
                   echo /bin >> "$GITHUB_PATH"
 
+            # act_runner is an x86_64 binary running under Rosetta, and the
+            # processes it starts inherit that, so xctest couldn't load the
+            # arm64 test bundles. arch -arm64 runs the toolchain natively.
             - name: Print Swift version
-              run: swift --version
+              run: arch -arm64 swift --version
 
             - name: Print Xcode version
               run: xcodebuild -version
 
             - name: Build
-              run: swift build
+              run: arch -arm64 swift build
 
             - name: Test
-              run: swift test
+              run: arch -arm64 swift test
