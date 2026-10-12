@@ -391,8 +391,6 @@ struct OutdatedListView: View {
 
 struct SelectionsListView: View {
   let model: SelectionsModel
-  /// Passed in for the table cells, like the other lists.
-  let activity: ActivityLog
   @Binding var selection: String?
 
   var body: some View {
@@ -417,29 +415,18 @@ struct SelectionsListView: View {
     } else {
       Table(model.groups, selection: $selection) {
         TableColumn("Group", value: \.name).width(min: 100, ideal: 140)
+        // Changing the selection happens in the detail pane; this shows a
+        // choice being applied there until the reload confirms it.
         TableColumn("Selected") { group in
-          Picker("Selected", selection: choice(for: group)) {
-            ForEach(group.options.filter { $0 != "none" }, id: \.self) { Text($0).tag($0) }
-            Divider()
-            Text("None").tag("none")
+          let selected = model.shownSelection(group)
+          if selected == "none" {
+            Text("None").foregroundStyle(.secondary)
+          } else {
+            Text(selected)
           }
-          .labelsHidden()
-          .pickerStyle(.menu)
-          .controlSize(.small)
-          .fixedSize()
-          .disabled(activity.isRunning)
-          .help("Choose which version \(group.name) uses (uses administrator authorization)")
         }
       }
     }
-  }
-}
-
-extension SelectionsListView {
-  fileprivate func choice(for group: PortSelectGroup) -> Binding<String> {
-    Binding(
-      get: { model.shownSelection(group) },
-      set: { option in Task { await model.select(option, in: group, activity: activity) } })
   }
 }
 
