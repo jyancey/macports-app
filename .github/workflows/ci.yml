@@ -26,7 +26,7 @@ jobs:
         runs-on: macos-26
 
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v7
 
             - name: Set up Xcode 26
               uses: maxim-lobanov/setup-xcode@v1
@@ -56,7 +56,7 @@ jobs:
         runs-on: macos-arm64
 
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v7
 
             # The runner's launchd PATH leaves out /bin and /sbin, and the
             # process tests' stand-in scripts need sleep and sh from there.
