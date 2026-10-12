@@ -78,8 +78,13 @@ public enum PortInfoParser {
       .filter { !$0.isEmpty && !$0.contains(" has no ") }
   }
 
+  /// Accepts bare names and the `name depends on other` lines newer `port` prints.
   public static func parseDependents(_ output: String) -> [String] {
-    parseFileList(output).filter { !$0.contains(" ") }
+    parseFileList(output).compactMap { line in
+      let words = line.split(separator: " ")
+      if words.count == 4, words[1] == "depends", words[2] == "on" { return String(words[0]) }
+      return words.count == 1 ? line : nil
+    }
   }
 
   /// A port in a dependency tree.

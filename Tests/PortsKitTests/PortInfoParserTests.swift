@@ -44,6 +44,9 @@ import Testing
       ])
     #expect(PortInfoParser.parseDependents("clang-23\ngcc15\n") == ["clang-23", "gcc15"])
     #expect(PortInfoParser.parseDependents("foo has no dependents!\n").isEmpty)
+    #expect(
+      PortInfoParser.parseDependents("freetype depends on bzip2\nlibsolv depends on bzip2\n")
+        == ["freetype", "libsolv"])
   }
 }
 
