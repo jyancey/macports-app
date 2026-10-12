@@ -405,11 +405,6 @@ struct ContentView: View {
       }
       .task {
         await model.load()
-        // Selecting the first port here, rather than leaving the detail pane
-        // empty, makes NavigationSplitView settle its column widths during
-        // launch instead of jumping them (and the divider under the toolbar)
-        // on the user's first click.
-        if selection == nil { selection = model.ports.first?.id }
         // Load the outdated list up front so its tab opens at once and the
         // sidebar can show how many updates there are.
         await outdatedModel.loadIfStale()
