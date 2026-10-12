@@ -33,7 +33,7 @@ struct HelpView: View {
         section(
           "Selections",
           [
-            "The Selections tab lists `port select` groups (clang, python, gcc…) and which version each uses. Pick a version from the menu in the Selected column, or choose a group to Select a version or Unset it (uses macOS administrator authorization)."
+            "The Selections tab lists `port select` groups (clang, python, gcc…) and which version each uses. Choose a group to Select a version or Unset it (uses macOS administrator authorization)."
           ])
         section(
           "Upgrading and cleanup",

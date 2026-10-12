@@ -649,7 +649,7 @@ struct ContentView: View {
         .searchable(text: $search, placement: .toolbar, prompt: Text(searchPrompt))
         .searchFocused($searchFocused)
       case .selections:
-        SelectionsListView(model: selectionsModel, activity: activity, selection: $groupSelection)
+        SelectionsListView(model: selectionsModel, selection: $groupSelection)
       }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -726,7 +726,7 @@ struct ContentView: View {
         SelectionDetailView(group: group, model: selectionsModel)
       } else {
         ContentUnavailableView {
-          Text("Select a port").font(.title2)
+          Text(currentMode == .selections ? "Select a group" : "Select a port").font(.title2)
         } description: {
           Text(emptyDetailMessage)
         } actions: {
@@ -756,6 +756,7 @@ struct ContentView: View {
     case .installed: "Choose an installed port to see its details."
     case .outdated: "Choose an outdated port to see its update."
     case .inactive: "Choose an inactive version to activate or remove it."
+    case .selections: "Choose a group to see or change its version."
     default: "Search for a port, then choose one to see its details."
     }
   }
