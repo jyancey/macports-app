@@ -7,7 +7,7 @@ import AppKit
 import PortsKit
 import SwiftUI
 
-/// Output of the long-running commands the app starts (install, and later uninstall/upgrade).
+/// Output of the long-running commands the app starts (install, upgrade, uninstall, and the rest).
 @MainActor
 @Observable
 final class ActivityLog {

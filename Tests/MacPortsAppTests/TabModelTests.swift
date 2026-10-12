@@ -180,7 +180,7 @@ extension Gates {
     #expect(await gates.calls == ["diagnose 1", "diagnose 2"])
   }
 
-  /// Leaving the Health tab during the first check cancels it; the next visit
+  /// Leaving the Health pane during the first check cancels it; the next visit
   /// runs it again without showing an error.
   @Test func cancelledDiagnoseRunsAgainOnTheNextVisit() async throws {
     let gates = gates

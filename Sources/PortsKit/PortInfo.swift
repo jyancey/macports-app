@@ -158,7 +158,7 @@ public protocol PortDetailSource: Sendable {
 extension PortClient: PortDetailSource {}
 
 /// Runs each query with the `port` path configured at that moment, so a path
-/// changed in Configuration applies to views that are already open.
+/// changed in Settings applies to views that are already open.
 public struct ConfiguredPortClient: PortDetailSource {
   public init() {}
 

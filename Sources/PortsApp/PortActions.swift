@@ -26,7 +26,7 @@ protocol PortCommandRunner: Sendable {
 }
 
 /// Runs each command with a new `PortClient`, so a `port` path or verbose
-/// setting changed in Configuration applies to the next command.
+/// setting changed in Settings applies to the next command.
 struct LivePortCommands: PortCommandRunner {
   func variants(of name: String) async throws -> [PortVariant] {
     try await PortClient().variants(of: name)
