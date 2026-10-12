@@ -1,0 +1,92 @@
+name: Release
+
+# Pushing a version tag (such as 0.4.0, or 0.5.0-rc.1 for a pre-release)
+# builds the app with scripts/package.sh and publishes a release with the
+# zip, pkg and dmg attached. The annotated tag's message becomes the release
+# notes. Running it by hand rebuilds and republishes an existing tag.
+on:
+    push:
+        tags:
+            - "*.*.*"
+    workflow_dispatch:
+        inputs:
+            tag:
+                description: Existing version tag to release (such as 0.4.0)
+                required: true
+
+permissions:
+    contents: write
+
+env:
+    TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+# Like CI, each job runs only where its runner exists: the GitHub-hosted
+# macos-26 image on github.com, and the local Gitea act_runner elsewhere.
+jobs:
+    release-github:
+        name: release (GitHub)
+        if: github.server_url == 'https://github.com'
+        runs-on: macos-26
+
+        steps:
+            - uses: actions/checkout@v7
+              with:
+                  ref: refs/tags/${{ env.TAG }}
+
+            - name: Set up Xcode 26
+              uses: maxim-lobanov/setup-xcode@v1
+              with:
+                  xcode-version: "26"
+
+            - name: Check the version and write the release notes
+              run: scripts/release-notes.sh "$TAG" > "$RUNNER_TEMP/notes.md"
+
+            - name: Test
+              run: swift test
+
+            - name: Package
+              run: scripts/package.sh "$TAG"
+
+            - name: Publish the release
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  flags=()
+                  [[ "$TAG" == *-* ]] && flags+=(--prerelease)
+                  # Replace a release left by an earlier run of this tag.
+                  gh release delete "$TAG" --yes 2>/dev/null || true
+                  gh release create "$TAG" --verify-tag --title "$TAG" \
+                      --notes-file "$RUNNER_TEMP/notes.md" "${flags[@]}" \
+                      dist/MacPortsApp-*.zip dist/MacPortsApp-*.pkg dist/MacPortsApp-*.dmg
+
+    release-gitea:
+        name: release (Gitea)
+        if: github.server_url != 'https://github.com'
+        runs-on: macos-arm64
+
+        steps:
+            - uses: actions/checkout@v7
+              with:
+                  ref: refs/tags/${{ env.TAG }}
+
+            # The runner's launchd PATH leaves out /bin and /sbin (see ci.yml).
+            - name: Add /bin and /sbin to PATH
+              run: |
+                  echo /sbin >> "$GITHUB_PATH"
+                  echo /bin >> "$GITHUB_PATH"
+
+            - name: Check the version and write the release notes
+              run: scripts/release-notes.sh "$TAG" > "$RUNNER_TEMP/notes.md"
+
+            - name: Test
+              run: swift test
+
+            - name: Package
+              run: scripts/package.sh "$TAG"
+
+            - name: Publish the release
+              env:
+                  API: ${{ github.api_url }}/repos/${{ github.repository }}
+                  TOKEN: ${{ github.token }}
+              run: scripts/gitea-release.sh "$API" "$TOKEN" "$TAG" "$RUNNER_TEMP/notes.md" \
+                  dist/MacPortsApp-*.zip dist/MacPortsApp-*.pkg dist/MacPortsApp-*.dmg
