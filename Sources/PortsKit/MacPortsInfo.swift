@@ -162,6 +162,27 @@ extension MacPortsInfo {
   }
 }
 
+extension MacPortsInfo {
+  /// A ports tree not synced for this long is probably missing updates.
+  public static let staleSyncAge: TimeInterval = 7 * 24 * 60 * 60
+
+  public enum SyncStatus: Equatable, Sendable {
+    /// No source has a PortIndex to date the tree by.
+    case unknown
+    case fresh(Date)
+    case stale(Date)
+  }
+
+  /// Whether the ports tree was synced recently. A sync date in the future
+  /// (clock changes) counts as fresh.
+  public func syncStatus(
+    now: Date = Date(), staleAfter: TimeInterval = MacPortsInfo.staleSyncAge
+  ) -> SyncStatus {
+    guard let lastSync else { return .unknown }
+    return now.timeIntervalSince(lastSync) > staleAfter ? .stale(lastSync) : .fresh(lastSync)
+  }
+}
+
 extension PortClient {
   /// Runs `port version` once; everything else is read from the config files.
   public func macPortsInfo() async throws -> MacPortsInfo {

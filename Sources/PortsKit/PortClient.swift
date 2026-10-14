@@ -108,6 +108,20 @@ public struct PortClient: Sendable {
     return PortListParser.parseInstalled(output)
   }
 
+  /// Names of installed ports nothing else depends on, read from the registry;
+  /// nil when the registry can't be read.
+  public func leafPorts() async -> Set<String>? {
+    guard let registry else { return nil }
+    return await Task.detached(priority: .utility) { try? registry.leafPorts() }.value
+  }
+
+  /// Disk usage of every installed version, keyed by `InstalledPort.id`, read
+  /// from the registry; nil when the registry can't be read.
+  public func diskUsage() async -> [String: Int64]? {
+    guard let registry else { return nil }
+    return await Task.detached(priority: .utility) { try? registry.diskUsage() }.value
+  }
+
   /// Names of available ports matching `term` under `scope`, best matches first.
   public func search(_ term: String, scope: SearchScope = .name) async throws -> [String] {
     let term = term.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -182,6 +196,21 @@ public struct PortClient: Sendable {
     onOutput: @escaping @MainActor @Sendable (String) -> Void
   ) async throws {
     try await runStreaming(action: "uninstall", name: name, onOutput: onOutput)
+  }
+
+  /// Deletes a port's work directory, distfiles and logs (`port clean --all`).
+  /// The installed port is untouched; this only frees build leftovers.
+  public func clean(
+    _ name: String,
+    onOutput: @escaping @MainActor @Sendable (String) -> Void
+  ) async throws {
+    try await runStreaming(action: "clean --all", name: name, onOutput: onOutput)
+  }
+
+  /// Deletes the work directories, distfiles and logs of every installed
+  /// port (`port clean --all installed`).
+  public func cleanAll(onOutput: @escaping @MainActor @Sendable (String) -> Void) async throws {
+    try await runStreaming(action: "clean --all", name: "installed", onOutput: onOutput)
   }
 
   /// Ports with a newer version available.

@@ -19,14 +19,28 @@ final class InstalledPortsModel {
   /// True when the last load failed because there is no `port` at the
   /// configured path.
   private(set) var isPortMissing = false
+  /// Names of ports nothing else depends on; nil when it can't be told.
+  private(set) var leaves: Set<String>?
 
   typealias Fetch = @Sendable () async throws -> [InstalledPort]
+  typealias FetchUsage = @Sendable () async -> [String: Int64]?
   private let fetch: Fetch
+  typealias FetchLeaves = @Sendable () async -> Set<String>?
+  private let fetchUsage: FetchUsage
+  private let fetchLeaves: FetchLeaves
+  private var usageTask: Task<Void, Never>?
 
-  /// The default uses a new client each time, so a changed `port` path
-  /// applies at once.
-  init(fetch: @escaping Fetch = { try await PortClient().installedPorts() }) {
-    self.fetch = fetch
+  /// The defaults use a new client each time, so a changed `port` path
+  /// applies at once. Sizes are only measured for the default `fetch`, unless
+  /// `fetchUsage` is given too; likewise for `fetchLeaves`.
+  init(fetch: Fetch? = nil, fetchUsage: FetchUsage? = nil, fetchLeaves: FetchLeaves? = nil) {
+    let live: FetchUsage = { await PortClient().diskUsage() }
+    self.fetch = fetch ?? { try await PortClient().installedPorts() }
+    let none: FetchUsage = { nil }
+    self.fetchUsage = fetchUsage ?? (fetch == nil ? live : none)
+    let liveLeaves: FetchLeaves = { await PortClient().leafPorts() }
+    let noLeaves: FetchLeaves = { nil }
+    self.fetchLeaves = fetchLeaves ?? (fetch == nil ? liveLeaves : noLeaves)
   }
 
   func load() async {
@@ -36,10 +50,29 @@ final class InstalledPortsModel {
     defer { isLoading = false }
     do {
       ports = try await fetch()
+      leaves = await fetchLeaves()
+      measureUsage()
     } catch {
+      usageTask?.cancel()
       ports = []
+      leaves = nil
       errorMessage = error.localizedDescription
       if case PortClientError.notInstalled = error { isPortMissing = true }
+    }
+  }
+
+  /// Measures every version's disk usage in the background, so the list shows
+  /// at once and the Size column fills in. A newer load replaces it.
+  private func measureUsage() {
+    usageTask?.cancel()
+    let fetchUsage = fetchUsage
+    usageTask = Task {
+      guard let usage = await fetchUsage(), !Task.isCancelled else { return }
+      ports = ports.map { port in
+        var port = port
+        port.diskUsage = usage[port.id] ?? 0
+        return port
+      }
     }
   }
 }
@@ -319,6 +352,7 @@ struct ContentView: View {
   @AppStorage(PortClient.executablePathDefaultsKey) private var portPath = ""
   @AppStorage(SettingsPane.defaultsKey) private var settingsPane = SettingsPane.general
   @Environment(\.openSettings) private var openSettings
+  @Environment(AppUpdateModel.self) private var appUpdates
   @State private var detailCache: PortDetailCache
   @State private var actions: PortActions
   @State private var groupSelection: String?
@@ -327,6 +361,7 @@ struct ContentView: View {
   @State private var search = ""
   @State private var scope = SearchScope.name
   @State private var prebuiltOnly = false
+  @State private var leavesOnly = false
   @State private var sortOrder = [KeyPathComparator(\InstalledPort.name)]
 
   @State private var selection: InstalledPort.ID?
@@ -416,10 +451,24 @@ struct ContentView: View {
       .task(id: outdatedModel.ports.map(\.availableVersion) + [String(model.ports.count)]) {
         outdatedModel.checkBinaries(installed: model.ports)
       }
+      .task(id: activity.completedRuns) {
+        // On appearing, and after each command (a sync changes the tree's age).
+        await configurationModel.load()
+      }
+      .task { await appUpdates.checkIfDue() }
       .task(id: mode) {
         if !searchIsEnabled { search = "" }
         if currentMode == .outdated { await outdatedModel.loadIfStale() }
         if currentMode == .selections { await selectionsModel.loadIfStale() }
+      }
+      .onChange(of: outdatedModel.ports) {
+        UpdateNotifier.shared.updateBadge(count: outdatedModel.ports.count)
+      }
+      .task(id: activity.completedRuns) {
+        // A sync or self-update may have found new versions.
+        guard ["sync", "selfupdate"].contains(activity.lastCompletedName) else { return }
+        await outdatedModel.load()
+        UpdateNotifier.shared.syncFinished(outdated: outdatedModel.ports)
       }
       .onChange(of: activity.completedRuns) {
         // A command may have changed what these show; reload on the next visit.
@@ -588,6 +637,12 @@ struct ContentView: View {
       }
       .help(ActivityToolbarIcon.help(activity))
     }
+    if currentMode == .installed, model.leaves != nil {
+      ToolbarItem {
+        Toggle("Leaves only", systemImage: "leaf", isOn: $leavesOnly)
+          .help("Show only ports that no other installed port depends on")
+      }
+    }
     if currentMode == .available {
       ToolbarItem {
         Toggle("Pre-built only", systemImage: "checkmark.seal", isOn: $prebuiltOnly)
@@ -618,7 +673,7 @@ struct ContentView: View {
       case .installed:
         InstalledListView(
           model: model, outdated: outdatedModel, actions: actions, filter: search,
-          sortOrder: $sortOrder, selection: $selection,
+          leavesOnly: leavesOnly, sortOrder: $sortOrder, selection: $selection,
           showPortLocation: {
             settingsPane = .general
             openSettings()
@@ -653,6 +708,14 @@ struct ContentView: View {
       }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .safeAreaInset(edge: .bottom, spacing: 0) { syncBar }
+    .safeAreaInset(edge: .top, spacing: 0) {
+      if let release = appUpdates.offered {
+        AppUpdateBar(
+          release: release, currentVersion: appUpdates.currentVersion.description,
+          skip: { appUpdates.skip(release) })
+      }
+    }
     .onChange(of: scope) {
       if currentMode == .available, searchModel.hasSearched, !search.isEmpty {
         searchModel.search(search, scope: scope)
@@ -661,6 +724,17 @@ struct ContentView: View {
     .onSubmit(of: .search) {
       guard currentMode == .available else { return }
       searchModel.search(search, scope: scope)
+    }
+  }
+
+  /// The ports tree's age, under the lists whose results come from it.
+  @ViewBuilder private var syncBar: some View {
+    if currentMode == .available || currentMode == .outdated,
+      let info = configurationModel.info
+    {
+      PortsTreeSyncBar(status: info.syncStatus(), isBusy: activity.isRunning) {
+        MacPortsMaintenance.sync.run(activity: activity, configuration: configurationModel)
+      }
     }
   }
 

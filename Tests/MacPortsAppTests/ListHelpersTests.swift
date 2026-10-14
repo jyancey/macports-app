@@ -8,6 +8,8 @@ import Testing
 
 @testable import MacPortsApp
 
+final class Box: @unchecked Sendable { var fail = false }
+
 @MainActor
 @Suite struct ListHelpersTests {
   func port(_ name: String, active: Bool = true) -> InstalledPort {
@@ -20,6 +22,103 @@ import Testing
     #expect(model.names == ["zlib", "git"])
     model.ports = [port("bash")]
     #expect(model.names == ["bash"])
+  }
+
+  @Test func sizesFillInAfterThePortsLoad() async throws {
+    let ports = [port("zlib"), port("git"), port("empty")]
+    let model = InstalledPortsModel(
+      fetch: { ports }, fetchUsage: { ["zlib@1.0_0": 2048, "git@1.0_0": 10] })
+    await model.load()
+    #expect(try await until { model.ports.allSatisfy { $0.diskUsage != nil } })
+    #expect(model.ports.map(\.diskUsage) == [2048, 10, 0])
+    #expect(!model.isLoading)
+  }
+
+  @Test func portsShowWithoutSizesWhenTheyCantBeMeasured() async throws {
+    let model = InstalledPortsModel(fetch: { [InstalledPort(name: "zlib", version: "1.0", revision: 0, variants: [], isActive: true)] },
+      fetchUsage: { nil })
+    await model.load()
+    try await Task.sleep(for: .milliseconds(20))
+    #expect(model.ports.map(\.name) == ["zlib"])
+    #expect(model.ports[0].diskUsage == nil)
+  }
+
+  @Test func aFailedLoadClearsTheSizes() async throws {
+    struct Failure: Error {}
+    let box = Box()
+    let model = InstalledPortsModel(
+      fetch: { if box.fail { throw Failure() } else { [InstalledPort(
+        name: "zlib", version: "1.0", revision: 0, variants: [], isActive: true)] } },
+      fetchUsage: { ["zlib@1.0_0": 5] })
+    await model.load()
+    #expect(try await until { model.ports.first?.diskUsage == 5 })
+    box.fail = true
+    await model.load()
+    #expect(model.ports.isEmpty)
+    #expect(model.errorMessage != nil)
+  }
+
+  @Test func unmeasuredVersionsSortBeforeMeasuredOnes() {
+    var measured = port("a")
+    measured.diskUsage = 0
+    #expect(port("b").sortUsage < measured.sortUsage)
+    #expect([measured, port("b")].sorted { $0.sortUsage < $1.sortUsage }.map(\.name) == ["b", "a"])
+  }
+
+  @Test func fileSizesUseFinderUnits() {
+    #expect(Int64(2_000_000).fileSize == "2 MB")
+  }
+
+  @Test func onlyLeavesKeepsEveryVersionOfALeaf() {
+    let ports = [port("zlib"), port("git"), port("git", active: false)]
+    #expect(ports.onlyLeaves(["git"]).map(\.name) == ["git", "git"])
+    #expect(ports.onlyLeaves([]).isEmpty)
+    // Unknown leaves can't hide anything.
+    #expect(ports.onlyLeaves(nil).count == 3)
+  }
+
+  @Test func leavesLoadWithThePortsAndClearOnFailure() async {
+    struct Failure: Error {}
+    let box = Box()
+    let model = InstalledPortsModel(
+      fetch: {
+        if box.fail { throw Failure() }
+        return [InstalledPort(name: "git", version: "1", revision: 0, variants: [], isActive: true)]
+      },
+      fetchUsage: { nil }, fetchLeaves: { ["git"] })
+    #expect(model.leaves == nil)
+    await model.load()
+    #expect(model.leaves == ["git"])
+    box.fail = true
+    await model.load()
+    #expect(model.leaves == nil)
+  }
+
+  func port(_ name: String, usage: Int64?) -> InstalledPort {
+    var port = port(name)
+    port.diskUsage = usage
+    return port
+  }
+
+  @Test func totalUsageSumsMeasuredVersions() {
+    #expect([InstalledPort]().totalUsage == nil)
+    #expect([port("a"), port("b")].totalUsage == nil)
+    #expect([port("a", usage: 100), port("b", usage: 0)].totalUsage == 100)
+    // Versions still being measured don't hide the others' sizes.
+    #expect([port("a", usage: 100), port("b", usage: 50), port("c")].totalUsage == 150)
+  }
+
+  @Test func installedSubtitleAddsTheSizeOnceKnown() {
+    #expect([port("a"), port("b")].installedSubtitle(of: 5) == "2 of 5")
+    let sized = [port("a", usage: 1_000_000), port("b", usage: 1_000_000)]
+    #expect(sized.installedSubtitle(of: 5) == "2 of 5 · \(Int64(2_000_000).fileSize)")
+  }
+
+  @Test func inactiveSubtitleSaysWhatRemovingWouldFree() {
+    #expect([port("a", active: false)].inactiveSubtitle == "1 inactive")
+    let sized = [port("a", usage: 3_000_000), port("b", usage: 1_000_000)]
+    #expect(sized.inactiveSubtitle == "2 inactive · \(Int64(4_000_000).fileSize) can be freed")
+    #expect([InstalledPort]().inactiveSubtitle == "0 inactive")
   }
 
   @Test func filterMatchesNamesIgnoringCase() {

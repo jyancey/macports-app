@@ -35,6 +35,11 @@ struct PaneHeader<Accessory: View>: View {
   }
 }
 
+extension Int64 {
+  /// "12.3 MB", in file-size units like Finder's.
+  var fileSize: String { formatted(.byteCount(style: .file)) }
+}
+
 /// "1 result", "3 results": a count with its noun in the right number.
 func counted(_ count: Int, _ singular: String, plural: String? = nil) -> String {
   "\(count.formatted()) " + (count == 1 ? singular : plural ?? singular + "s")
@@ -47,9 +52,44 @@ extension PaneHeader where Accessory == EmptyView {
 }
 
 extension Array where Element == InstalledPort {
+  /// Only the ports named in `leaves`; all of them when `leaves` is nil.
+  func onlyLeaves(_ leaves: Set<String>?) -> [InstalledPort] {
+    leaves.map { leaves in self.filter { leaves.contains($0.name) } } ?? self
+  }
+
+  /// Bytes the versions take up together; nil until at least one is measured.
+  var totalUsage: Int64? {
+    let measured = compactMap(\.diskUsage)
+    return measured.isEmpty ? nil : measured.reduce(0, +)
+  }
+
+  /// "12 of 40", with the shown versions' size appended once it's known.
+  func installedSubtitle(of total: Int) -> String {
+    let count = "\(self.count) of \(total)"
+    return totalUsage.map { "\(count) · \($0.fileSize)" } ?? count
+  }
+
+  /// "3 inactive", with how much removing them would free once it's known.
+  var inactiveSubtitle: String {
+    let count = "\(self.count) inactive"
+    return totalUsage.map { "\(count) · \($0.fileSize) can be freed" } ?? count
+  }
+
   /// Ports whose name contains `filter` (all of them when it's empty).
   func matching(_ filter: String) -> [InstalledPort] {
     filter.isEmpty ? self : self.filter { $0.name.localizedCaseInsensitiveContains(filter) }
+  }
+}
+
+/// A version's disk usage, right-aligned; "—" until measured.
+struct SizeCell: View {
+  let port: InstalledPort
+
+  var body: some View {
+    Text(port.diskUsage?.fileSize ?? "—")
+      .monospacedDigit()
+      .foregroundStyle(.secondary)
+      .frame(maxWidth: .infinity, alignment: .trailing)
   }
 }
 
@@ -60,6 +100,8 @@ struct InstalledListView: View {
   /// Passed in rather than read from the environment, like `activity` below.
   let actions: PortActions
   let filter: String
+  /// Hide ports another installed port depends on.
+  var leavesOnly = false
   @Binding var sortOrder: [KeyPathComparator<InstalledPort>]
   @Binding var selection: InstalledPort.ID?
   /// Opens Settings, where the `port` path is set.
@@ -68,9 +110,11 @@ struct InstalledListView: View {
   private static let installPage = URL(string: "https://www.macports.org/install.php")!
 
   var body: some View {
-    let rows = model.ports.matching(filter).sorted(using: sortOrder)
+    let rows = model.ports.matching(filter).onlyLeaves(leavesOnly ? model.leaves : nil)
+      .sorted(using: sortOrder)
     VStack(spacing: 0) {
-      PaneHeader(title: "Installed Ports", subtitle: "\(rows.count) of \(model.ports.count)")
+      PaneHeader(
+        title: "Installed Ports", subtitle: rows.installedSubtitle(of: model.ports.count))
       Group {
         if let error = model.errorMessage {
           LoadErrorView(title: "Can't read ports", message: error) {
@@ -105,6 +149,8 @@ struct InstalledListView: View {
                 .foregroundStyle($0.isActive ? .primary : .secondary)
             }
             .width(min: 60, ideal: 70, max: 90)
+            TableColumn("Size", value: \.sortUsage) { SizeCell(port: $0) }
+              .width(min: 60, ideal: 80, max: 100)
           }
           .contextMenu(forSelectionType: InstalledPort.ID.self) { ids in
             if ids.count == 1, let port = model.ports.first(where: { ids.contains($0.id) }) {
@@ -129,7 +175,7 @@ struct InactiveListView: View {
   var body: some View {
     let rows = model.ports.filter { !$0.isActive }.matching(filter).sorted(using: sortOrder)
     VStack(spacing: 0) {
-      PaneHeader(title: "Inactive Ports", subtitle: "\(rows.count) inactive")
+      PaneHeader(title: "Inactive Ports", subtitle: rows.inactiveSubtitle)
       Group {
         if rows.isEmpty {
           ContentUnavailableView(
@@ -143,6 +189,8 @@ struct InactiveListView: View {
             TableColumn("Variants") {
               Text($0.variants.map { "+" + $0 }.joined(separator: " ")).foregroundStyle(.secondary)
             }
+            TableColumn("Size", value: \.sortUsage) { SizeCell(port: $0) }
+              .width(min: 60, ideal: 80, max: 100)
           }
           .contextMenu(forSelectionType: InstalledPort.ID.self) { ids in
             let ports = rows.filter { ids.contains($0.id) }

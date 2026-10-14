@@ -29,6 +29,8 @@ final class ActivityLog {
   /// Counts finished runs. Any run may have changed the system, so cached tab
   /// data watches this to know when it is out of date.
   private(set) var completedRuns = 0
+  /// The `name` of the run counted by `completedRuns` last, such as "sync".
+  private(set) var lastCompletedName: String?
   var isVisible = false
   /// Live status of each port the current run is touching, including dependencies.
   private(set) var progress: [String: PortProgress] = [:]
@@ -92,6 +94,7 @@ final class ActivityLog {
     self.stop = stop
     defer {
       isRunning = false
+      lastCompletedName = runningName
       runningName = nil
       runningTitle = nil
       startedAt = nil

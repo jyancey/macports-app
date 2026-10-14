@@ -62,6 +62,53 @@ public struct PortRegistry: Sendable {
     }
   }
 
+  /// Bytes each installed version's files take up, keyed by
+  /// `InstalledPort.id`. Inactive versions are measured where they are stored
+  /// (their image). Sizes are logical file sizes (`st_size`); a file hard-linked
+  /// several times within one version counts once, and symlinks and
+  /// directories count nothing. Versions without files are absent.
+  ///
+  /// Stats every file the registry lists, so run it off the main thread.
+  public func diskUsage() throws -> [String: Int64] {
+    let rows = try withDatabase { db in
+      try Self.query(
+        db,
+        "SELECT p.name, p.version, p.revision, p.variants, p.state, "
+          + "COALESCE(NULLIF(f.actual_path, ''), f.path) FROM files f "
+          + "JOIN ports p ON p.id = f.id WHERE p.state IN ('installed', 'imaged') "
+          + "ORDER BY p.id"
+      ) { statement in
+        (
+          port: InstalledPort(
+            name: Self.text(statement, 0), version: Self.text(statement, 1),
+            revision: Int(sqlite3_column_int64(statement, 2)),
+            variants: Self.text(statement, 3).split(separator: "+").map(String.init),
+            isActive: Self.text(statement, 4) == "installed"),
+          path: Self.text(statement, 5)
+        )
+      }
+    }
+    struct FileID: Hashable {
+      let device: dev_t
+      let inode: ino_t
+    }
+    var totals: [String: Int64] = [:]
+    var seen: Set<FileID> = []
+    var current = ""
+    for (port, path) in rows {
+      if port.id != current {
+        current = port.id
+        seen.removeAll(keepingCapacity: true)
+      }
+      var info = stat()
+      guard !path.isEmpty, lstat(path, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG,
+        seen.insert(FileID(device: info.st_dev, inode: info.st_ino)).inserted
+      else { continue }
+      totals[port.id, default: 0] += Int64(info.st_size)
+    }
+    return totals
+  }
+
   /// Installed ports that depend directly on `name`.
   public func dependents(of name: String) throws -> [String] {
     try withDatabase { db in
@@ -72,6 +119,23 @@ public struct PortRegistry: Sendable {
           + "ORDER BY p.name COLLATE NOCASE",
         bind: name
       ) { Self.text($0, 0) }
+    }
+  }
+
+  /// Names of installed ports that no other installed port depends on, so
+  /// each can be uninstalled without affecting another port (what
+  /// `port echo leaves` lists). Inactive versions count on both sides, as
+  /// in `dependents(of:)`.
+  public func leafPorts() throws -> Set<String> {
+    try withDatabase { db in
+      Set(
+        try Self.query(
+          db,
+          "SELECT DISTINCT p.name FROM ports p WHERE p.state IN ('installed', 'imaged') "
+            + "AND NOT EXISTS (SELECT 1 FROM dependencies d JOIN ports q ON q.id = d.id "
+            + "WHERE d.name = p.name AND q.name <> p.name "
+            + "AND q.state IN ('installed', 'imaged'))"
+        ) { Self.text($0, 0) })
     }
   }
 

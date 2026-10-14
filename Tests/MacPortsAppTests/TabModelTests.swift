@@ -267,6 +267,37 @@ extension Gates {
     #expect(model.summary == nil)
   }
 
+  @Test func cleanAllRunsThroughTheActivityLog() async {
+    let log = ActivityLog()
+    let model = HealthModel(diagnose: { [] }, cleanAll: { out in
+      await out("cleaning\n")
+    })
+    await model.cleanAll(activity: log)
+    #expect(log.chunks.joined().hasPrefix("$ sudo port clean --all installed\n"))
+    #expect(log.chunks.joined().contains("cleaning"))
+    #expect(!log.lastRunFailed)
+  }
+
+  @Test func failedCleanAllIsReported() async {
+    let log = ActivityLog()
+    let model = HealthModel(diagnose: { [] }, cleanAll: { _ in throw Failure() })
+    await model.cleanAll(activity: log)
+    #expect(log.lastRunFailed)
+  }
+
+  @Test func cleanAllWaitsWhileACommandIsRunning() async throws {
+    let log = ActivityLog()
+    let gates = Gates()
+    let count = Counter()
+    let model = HealthModel(diagnose: { [] }, cleanAll: { _ in count.value += 1 })
+    let busy = Task { await log.run("busy", name: "busy") { _ in try await gates.pass("busy") } }
+    #expect(try await until { log.isRunning })
+    await model.cleanAll(activity: log)
+    #expect(count.value == 0)
+    await gates.open("busy")
+    _ = await busy.value
+  }
+
   @Test func reclaimFailureDoesNotReplaceTheDiagnoseResult() async {
     let model = HealthModel(diagnose: { [] }, reclaim: { throw Failure() })
     await model.check()
@@ -276,6 +307,8 @@ extension Gates {
     #expect(model.findings == [])
   }
 }
+
+final class Counter: @unchecked Sendable { var value = 0 }
 
 @MainActor
 @Suite(.timeLimit(.minutes(1))) struct SelectionChoiceTests {

@@ -14,7 +14,13 @@ Features include:
 - Install ports with variant selection and pre-built binary hints.
 - Upgrade outdated ports individually or in batches, and activate or remove inactive versions.
 - View and change selected versions for groups such as Python, Clang, and GCC.
+- See how much disk space each installed version uses (a sortable Size column, read from the registry's file lists), with totals in the Installed and Inactive headers.
+- Filter the Installed tab to leaf ports, the ones no other installed port depends on and that are safe to remove.
+- Clean a port's work directory and downloaded distfiles from its detail pane or context menu, or clean every installed port at once from Settings → Health.
 - Run `port diagnose`, check registry integrity, and launch `port reclaim` in Terminal.
+- See when the ports tree was last synced under the Available and Outdated lists, with a warning and a Sync Now button when it is more than a week old.
+- Show the number of outdated ports on the Dock icon, and optionally get a notification when a sync finds new updates (notifications need the packaged app).
+- Check GitHub for a new version of the app once a day or from the app menu (Check for Updates…), with an option to include pre-releases. Updates are not installed automatically: View Release opens the download page.
 - Configure the `port` executable path, verbosity, Activity-pane behavior, and ports sources in Settings (⌘,), and run Self-update or Sync from Settings or the MacPorts menu.
 - Use keyboard shortcuts, context menus, resizable list/detail panes, and a persistent Activity log.
 
@@ -24,22 +30,24 @@ Early development.
 
 ## Architecture
 
-How the main views fit together. `MacPortsApp` owns the app-wide models (`ActivityLog`, `ConfigurationModel`, `HealthModel`) and shares them between the main window and the Settings window.
+How the main views fit together. `MacPortsApp` owns the app-wide models (`ActivityLog`, `ConfigurationModel`, `HealthModel`, `AppUpdateModel`) and shares them between the main window and the Settings window.
 
 ```
 MacPortsApp (App)
 ├─ WindowGroup
 │  └─ ContentView
-│     ├─ Environment: ActivityLog, PortDetailCache, PortActions
+│     ├─ Environment: ActivityLog, PortDetailCache, PortActions, AppUpdateModel
 │     └─ NavigationSplitView
 │        ├─ Sidebar (List of BrowseMode)
 │        │   └─ Items: Installed, Available, Outdated, Inactive, Selections
 │        ├─ Content (mainPane switch on BrowseMode)
-│        │   ├─ Installed → InstalledListView
+│        │   ├─ Installed → InstalledListView (Size column, header total, Leaves only filter)
 │        │   ├─ Available → SearchResultsView (Match picker in its header)
 │        │   ├─ Outdated → OutdatedListView
 │        │   ├─ Inactive → InactiveListView
 │        │   └─ Selections → SelectionsListView (read-only table of groups)
+│        │   + AppUpdateBar above the pane when a newer release is out
+│        │   + PortsTreeSyncBar below Available and Outdated (last sync, Sync Now)
 │        └─ Detail (detailPane switch on selection + mode)
 │            ├─ Available + selected result → PortDetailView(name:isInstalled:...)
 │            ├─ Outdated + single selection → PortDetailView(canUpgrade: true)
@@ -47,20 +55,21 @@ MacPortsApp (App)
 │            ├─ Inactive + single selection → PortDetailView(inactiveVersion: ...)
 │            ├─ Inactive + multi-selection → BatchSelectionView (Remove)
 │            ├─ Installed + selected row
-│            │   ├─ Active → PortDetailView(canUpgrade: update != nil)
+│            │   ├─ Active → PortDetailView(canUpgrade: update != nil; Uninstall and Clean)
 │            │   └─ Inactive → PortDetailView(inactiveVersion: ...)
 │            ├─ Selections + selected group → SelectionDetailView (Select / Unset)
 │            └─ No selection → ContentUnavailableView (prompt + AppIconImage)
 │            + Activity Pane (ActivityPane) appended below detail when visible
 ├─ Settings (⌘,) → SettingsView
-│  ├─ General → GeneralSettingsView (Activity options, port executable path)
+│  ├─ General → GeneralSettingsView (Activity options, Dock badge and notifications, app update check, port executable path)
 │  ├─ MacPorts → MacPortsSettingsView (installation facts, Self-update/Sync, sources)
-│  └─ Health → HealthView (port diagnose, registry integrity, port reclaim)
+│  └─ Health → HealthView (port diagnose, registry integrity, port reclaim, Clean All Build Files)
 ├─ Window "Help" → HelpView
-└─ Commands → AppCommands (Find, View menu tabs/panes, MacPorts menu)
+└─ Commands → AppCommands (Find, View menu tabs/panes, MacPorts menu, Check for Updates…)
 
 Toolbars (ContentView.toolbar)
 ├─ Activity toggle (ActivityToolbarIcon)
+├─ Leaves only toggle (Installed)
 ├─ Pre-built only toggles (Available/Outdated)
 ├─ Upgrade buttons (Outdated)
 ├─ Remove buttons (Inactive)

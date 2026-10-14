@@ -4,9 +4,22 @@
 // Copyright © 2026 John Yancey. All rights reserved.
 //
 import SwiftUI
+import UserNotifications
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
+  /// Shows the update notification even while the app is in front, such as
+  /// when the sync was started from its own window.
+  func userNotificationCenter(
+    _ center: UNUserNotificationCenter, willPresent notification: UNNotification
+  ) async -> UNNotificationPresentationOptions {
+    [.banner, .sound]
+  }
+
   func applicationDidFinishLaunching(_ notification: Notification) {
+    // Unbundled runs (`swift run`) have no notification center.
+    if Bundle.main.bundleIdentifier != nil {
+      UNUserNotificationCenter.current().delegate = self
+    }
     // Lets the app show a window and menu bar when launched via `swift run`.
     NSApp.setActivationPolicy(.regular)
     NSApp.activate(ignoringOtherApps: true)
@@ -17,9 +30,9 @@ enum AppInfo {
   static let name = "MacPortsApp"
   // Fallback used when run unbundled (`swift run`); packaged builds read Info.plist.
   static let version =
-    Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.4.2"
+    Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.5.1"
   static let build =
-    Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0.4.2"
+    Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0.5.1"
   static let author = "John Yancey"
   static let copyright = "© 2026 John Yancey"
 }
@@ -31,12 +44,14 @@ struct MacPortsApp: App {
   // Shared by every window and the Settings window.
   @State private var configuration = ConfigurationModel()
   @State private var health = HealthModel()
+  @State private var appUpdates = AppUpdateModel()
   @Environment(\.openWindow) private var openWindow
 
   var body: some Scene {
     WindowGroup {
       ContentView(activity: activity, configuration: configuration)
         .environment(activity)
+        .environment(appUpdates)
         // Must be at least the sum of the three columns' minimum widths
         // (150 + 380 + 590), or the detail column gets squeezed below its
         // minimum and its toolbar controls spill into the content column.
@@ -46,6 +61,7 @@ struct MacPortsApp: App {
       AppCommands(activity: activity, configuration: configuration)
       CommandGroup(replacing: .appInfo) {
         Button("About \(AppInfo.name)") { showAbout() }
+        Button("Check for Updates…") { Task { await checkForUpdates() } }
       }
       CommandGroup(replacing: .help) {
         Button("\(AppInfo.name) Help") { openWindow(id: "help") }
@@ -63,7 +79,26 @@ struct MacPortsApp: App {
     Settings {
       SettingsView(configuration: configuration, health: health)
         .environment(activity)
+        .environment(appUpdates)
     }
+  }
+
+  /// Checks now, and says so when there is nothing newer or GitHub can't be
+  /// reached; a newer release shows in the window's bar.
+  private func checkForUpdates() async {
+    appUpdates.clearSkipped()
+    let alert = NSAlert()
+    switch await appUpdates.check() {
+    case .updateAvailable: return
+    case .upToDate:
+      alert.messageText = "\(AppInfo.name) is up to date"
+      alert.informativeText = "You have the newest version, \(appUpdates.currentVersion)."
+    case .failed(let message):
+      alert.alertStyle = .warning
+      alert.messageText = "Couldn't check for updates"
+      alert.informativeText = message
+    }
+    alert.runModal()
   }
 
   private func showAbout() {
