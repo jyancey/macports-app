@@ -12,6 +12,9 @@ public struct InstalledPort: Identifiable, Hashable, Sendable {
   public let revision: Int
   public let variants: [String]
   public let isActive: Bool
+  /// Bytes the version's files take up, once measured (see
+  /// `PortRegistry.diskUsage`); nil until then. Not part of `id`.
+  public var diskUsage: Int64?
   /// `name@version_revision+variants`. Stored because tables and selections
   /// compare IDs constantly.
   public let id: String
@@ -24,6 +27,9 @@ public struct InstalledPort: Identifiable, Hashable, Sendable {
     self.isActive = isActive
     id = "\(name)@\(version)_\(revision)" + variants.map { "+" + $0 }.joined()
   }
+
+  /// `diskUsage` as a sort key: versions not measured yet sort first.
+  public var sortUsage: Int64 { diskUsage ?? -1 }
 
   /// `@version_revision+variants`, as `port` accepts it after the name to
   /// pick this exact installed version.

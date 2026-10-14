@@ -35,6 +35,11 @@ struct PaneHeader<Accessory: View>: View {
   }
 }
 
+extension Int64 {
+  /// "12.3 MB", in file-size units like Finder's.
+  var fileSize: String { formatted(.byteCount(style: .file)) }
+}
+
 /// "1 result", "3 results": a count with its noun in the right number.
 func counted(_ count: Int, _ singular: String, plural: String? = nil) -> String {
   "\(count.formatted()) " + (count == 1 ? singular : plural ?? singular + "s")
@@ -50,6 +55,18 @@ extension Array where Element == InstalledPort {
   /// Ports whose name contains `filter` (all of them when it's empty).
   func matching(_ filter: String) -> [InstalledPort] {
     filter.isEmpty ? self : self.filter { $0.name.localizedCaseInsensitiveContains(filter) }
+  }
+}
+
+/// A version's disk usage, right-aligned; "—" until measured.
+struct SizeCell: View {
+  let port: InstalledPort
+
+  var body: some View {
+    Text(port.diskUsage?.fileSize ?? "—")
+      .monospacedDigit()
+      .foregroundStyle(.secondary)
+      .frame(maxWidth: .infinity, alignment: .trailing)
   }
 }
 
@@ -105,6 +122,8 @@ struct InstalledListView: View {
                 .foregroundStyle($0.isActive ? .primary : .secondary)
             }
             .width(min: 60, ideal: 70, max: 90)
+            TableColumn("Size", value: \.sortUsage) { SizeCell(port: $0) }
+              .width(min: 60, ideal: 80, max: 100)
           }
           .contextMenu(forSelectionType: InstalledPort.ID.self) { ids in
             if ids.count == 1, let port = model.ports.first(where: { ids.contains($0.id) }) {
@@ -143,6 +162,8 @@ struct InactiveListView: View {
             TableColumn("Variants") {
               Text($0.variants.map { "+" + $0 }.joined(separator: " ")).foregroundStyle(.secondary)
             }
+            TableColumn("Size", value: \.sortUsage) { SizeCell(port: $0) }
+              .width(min: 60, ideal: 80, max: 100)
           }
           .contextMenu(forSelectionType: InstalledPort.ID.self) { ids in
             let ports = rows.filter { ids.contains($0.id) }

@@ -108,6 +108,13 @@ public struct PortClient: Sendable {
     return PortListParser.parseInstalled(output)
   }
 
+  /// Disk usage of every installed version, keyed by `InstalledPort.id`, read
+  /// from the registry; nil when the registry can't be read.
+  public func diskUsage() async -> [String: Int64]? {
+    guard let registry else { return nil }
+    return await Task.detached(priority: .utility) { try? registry.diskUsage() }.value
+  }
+
   /// Names of available ports matching `term` under `scope`, best matches first.
   public func search(_ term: String, scope: SearchScope = .name) async throws -> [String] {
     let term = term.trimmingCharacters(in: .whitespacesAndNewlines)
