@@ -184,6 +184,15 @@ public struct PortClient: Sendable {
     try await runStreaming(action: "uninstall", name: name, onOutput: onOutput)
   }
 
+  /// Deletes a port's work directory, distfiles and logs (`port clean --all`).
+  /// The installed port is untouched; this only frees build leftovers.
+  public func clean(
+    _ name: String,
+    onOutput: @escaping @MainActor @Sendable (String) -> Void
+  ) async throws {
+    try await runStreaming(action: "clean --all", name: name, onOutput: onOutput)
+  }
+
   /// Ports with a newer version available.
   public func outdated() async throws -> [OutdatedPort] {
     OutdatedParser.parse(try await run(["-q", "outdated"]))
