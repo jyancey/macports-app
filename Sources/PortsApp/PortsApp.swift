@@ -116,7 +116,7 @@ struct MacPortsApp: App {
       .credits: credits,
       NSApplication.AboutPanelOptionKey(rawValue: "Copyright"): AppInfo.copyright,
     ]
-    if let url = Bundle.module.url(forResource: "AppIcon", withExtension: "png"),
+    if let url = AppResources.url(forResource: "AppIcon", withExtension: "png"),
       let icon = NSImage(contentsOf: url)
     {
       options[.applicationIcon] = icon
