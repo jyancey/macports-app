@@ -21,12 +21,19 @@ final class InstalledPortsModel {
   private(set) var isPortMissing = false
 
   typealias Fetch = @Sendable () async throws -> [InstalledPort]
+  typealias FetchUsage = @Sendable () async -> [String: Int64]?
   private let fetch: Fetch
+  private let fetchUsage: FetchUsage
+  private var usageTask: Task<Void, Never>?
 
-  /// The default uses a new client each time, so a changed `port` path
-  /// applies at once.
-  init(fetch: @escaping Fetch = { try await PortClient().installedPorts() }) {
-    self.fetch = fetch
+  /// The defaults use a new client each time, so a changed `port` path
+  /// applies at once. Sizes are only measured for the default `fetch`, unless
+  /// `fetchUsage` is given too.
+  init(fetch: Fetch? = nil, fetchUsage: FetchUsage? = nil) {
+    let live: FetchUsage = { await PortClient().diskUsage() }
+    self.fetch = fetch ?? { try await PortClient().installedPorts() }
+    let none: FetchUsage = { nil }
+    self.fetchUsage = fetchUsage ?? (fetch == nil ? live : none)
   }
 
   func load() async {
@@ -36,10 +43,27 @@ final class InstalledPortsModel {
     defer { isLoading = false }
     do {
       ports = try await fetch()
+      measureUsage()
     } catch {
+      usageTask?.cancel()
       ports = []
       errorMessage = error.localizedDescription
       if case PortClientError.notInstalled = error { isPortMissing = true }
+    }
+  }
+
+  /// Measures every version's disk usage in the background, so the list shows
+  /// at once and the Size column fills in. A newer load replaces it.
+  private func measureUsage() {
+    usageTask?.cancel()
+    let fetchUsage = fetchUsage
+    usageTask = Task {
+      guard let usage = await fetchUsage(), !Task.isCancelled else { return }
+      ports = ports.map { port in
+        var port = port
+        port.diskUsage = usage[port.id] ?? 0
+        return port
+      }
     }
   }
 }
