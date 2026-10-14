@@ -52,6 +52,11 @@ extension PaneHeader where Accessory == EmptyView {
 }
 
 extension Array where Element == InstalledPort {
+  /// Only the ports named in `leaves`; all of them when `leaves` is nil.
+  func onlyLeaves(_ leaves: Set<String>?) -> [InstalledPort] {
+    leaves.map { leaves in self.filter { leaves.contains($0.name) } } ?? self
+  }
+
   /// Bytes the versions take up together; nil until at least one is measured.
   var totalUsage: Int64? {
     let measured = compactMap(\.diskUsage)
@@ -95,6 +100,8 @@ struct InstalledListView: View {
   /// Passed in rather than read from the environment, like `activity` below.
   let actions: PortActions
   let filter: String
+  /// Hide ports another installed port depends on.
+  var leavesOnly = false
   @Binding var sortOrder: [KeyPathComparator<InstalledPort>]
   @Binding var selection: InstalledPort.ID?
   /// Opens Settings, where the `port` path is set.
@@ -103,7 +110,8 @@ struct InstalledListView: View {
   private static let installPage = URL(string: "https://www.macports.org/install.php")!
 
   var body: some View {
-    let rows = model.ports.matching(filter).sorted(using: sortOrder)
+    let rows = model.ports.matching(filter).onlyLeaves(leavesOnly ? model.leaves : nil)
+      .sorted(using: sortOrder)
     VStack(spacing: 0) {
       PaneHeader(
         title: "Installed Ports", subtitle: rows.installedSubtitle(of: model.ports.count))

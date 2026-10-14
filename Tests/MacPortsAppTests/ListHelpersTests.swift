@@ -69,6 +69,31 @@ final class Box: @unchecked Sendable { var fail = false }
     #expect(Int64(2_000_000).fileSize == "2 MB")
   }
 
+  @Test func onlyLeavesKeepsEveryVersionOfALeaf() {
+    let ports = [port("zlib"), port("git"), port("git", active: false)]
+    #expect(ports.onlyLeaves(["git"]).map(\.name) == ["git", "git"])
+    #expect(ports.onlyLeaves([]).isEmpty)
+    // Unknown leaves can't hide anything.
+    #expect(ports.onlyLeaves(nil).count == 3)
+  }
+
+  @Test func leavesLoadWithThePortsAndClearOnFailure() async {
+    struct Failure: Error {}
+    let box = Box()
+    let model = InstalledPortsModel(
+      fetch: {
+        if box.fail { throw Failure() }
+        return [InstalledPort(name: "git", version: "1", revision: 0, variants: [], isActive: true)]
+      },
+      fetchUsage: { nil }, fetchLeaves: { ["git"] })
+    #expect(model.leaves == nil)
+    await model.load()
+    #expect(model.leaves == ["git"])
+    box.fail = true
+    await model.load()
+    #expect(model.leaves == nil)
+  }
+
   func port(_ name: String, usage: Int64?) -> InstalledPort {
     var port = port(name)
     port.diskUsage = usage

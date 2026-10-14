@@ -122,6 +122,23 @@ public struct PortRegistry: Sendable {
     }
   }
 
+  /// Names of installed ports that no other installed port depends on, so
+  /// each can be uninstalled without affecting another port (what
+  /// `port echo leaves` lists). Inactive versions count on both sides, as
+  /// in `dependents(of:)`.
+  public func leafPorts() throws -> Set<String> {
+    try withDatabase { db in
+      Set(
+        try Self.query(
+          db,
+          "SELECT DISTINCT p.name FROM ports p WHERE p.state IN ('installed', 'imaged') "
+            + "AND NOT EXISTS (SELECT 1 FROM dependencies d JOIN ports q ON q.id = d.id "
+            + "WHERE d.name = p.name AND q.name <> p.name "
+            + "AND q.state IN ('installed', 'imaged'))"
+        ) { Self.text($0, 0) })
+    }
+  }
+
   /// Rows of `PRAGMA quick_check`: `["ok"]` for a healthy database.
   public func quickCheck() throws -> [String] {
     try withDatabase { db in

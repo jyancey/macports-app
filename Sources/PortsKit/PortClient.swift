@@ -108,6 +108,13 @@ public struct PortClient: Sendable {
     return PortListParser.parseInstalled(output)
   }
 
+  /// Names of installed ports nothing else depends on, read from the registry;
+  /// nil when the registry can't be read.
+  public func leafPorts() async -> Set<String>? {
+    guard let registry else { return nil }
+    return await Task.detached(priority: .utility) { try? registry.leafPorts() }.value
+  }
+
   /// Disk usage of every installed version, keyed by `InstalledPort.id`, read
   /// from the registry; nil when the registry can't be read.
   public func diskUsage() async -> [String: Int64]? {
