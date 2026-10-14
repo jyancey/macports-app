@@ -52,6 +52,24 @@ extension PaneHeader where Accessory == EmptyView {
 }
 
 extension Array where Element == InstalledPort {
+  /// Bytes the versions take up together; nil until at least one is measured.
+  var totalUsage: Int64? {
+    let measured = compactMap(\.diskUsage)
+    return measured.isEmpty ? nil : measured.reduce(0, +)
+  }
+
+  /// "12 of 40", with the shown versions' size appended once it's known.
+  func installedSubtitle(of total: Int) -> String {
+    let count = "\(self.count) of \(total)"
+    return totalUsage.map { "\(count) · \($0.fileSize)" } ?? count
+  }
+
+  /// "3 inactive", with how much removing them would free once it's known.
+  var inactiveSubtitle: String {
+    let count = "\(self.count) inactive"
+    return totalUsage.map { "\(count) · \($0.fileSize) can be freed" } ?? count
+  }
+
   /// Ports whose name contains `filter` (all of them when it's empty).
   func matching(_ filter: String) -> [InstalledPort] {
     filter.isEmpty ? self : self.filter { $0.name.localizedCaseInsensitiveContains(filter) }
@@ -87,7 +105,8 @@ struct InstalledListView: View {
   var body: some View {
     let rows = model.ports.matching(filter).sorted(using: sortOrder)
     VStack(spacing: 0) {
-      PaneHeader(title: "Installed Ports", subtitle: "\(rows.count) of \(model.ports.count)")
+      PaneHeader(
+        title: "Installed Ports", subtitle: rows.installedSubtitle(of: model.ports.count))
       Group {
         if let error = model.errorMessage {
           LoadErrorView(title: "Can't read ports", message: error) {
@@ -148,7 +167,7 @@ struct InactiveListView: View {
   var body: some View {
     let rows = model.ports.filter { !$0.isActive }.matching(filter).sorted(using: sortOrder)
     VStack(spacing: 0) {
-      PaneHeader(title: "Inactive Ports", subtitle: "\(rows.count) inactive")
+      PaneHeader(title: "Inactive Ports", subtitle: rows.inactiveSubtitle)
       Group {
         if rows.isEmpty {
           ContentUnavailableView(
