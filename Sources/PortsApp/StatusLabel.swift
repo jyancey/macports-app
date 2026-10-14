@@ -6,6 +6,30 @@
 import PortsKit
 import SwiftUI
 
+/// Tells the user a newer MacPortsApp has been released.
+struct AppUpdateBar: View {
+  let release: AppRelease
+  let currentVersion: String
+  let skip: () -> Void
+  @Environment(\.openURL) private var openURL
+
+  var body: some View {
+    HStack(spacing: 8) {
+      StatusLabel(
+        "\(AppInfo.name) \(release.tag) is available (you have \(currentVersion)).",
+        systemImage: "arrow.down.circle.fill", color: .accentColor)
+      Spacer()
+      Button("View Release") { openURL(release.url) }
+      Button("Skip This Version", action: skip)
+    }
+    .font(.callout)
+    .padding(.horizontal, 16)
+    .padding(.vertical, 6)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(.bar)
+  }
+}
+
 /// The ports tree's last sync, under the Available and Outdated lists, whose
 /// results come from it. When it is old, says so and offers Sync.
 struct PortsTreeSyncBar: View {

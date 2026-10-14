@@ -14,6 +14,9 @@ struct GeneralSettingsView: View {
   @AppStorage(PortClient.executablePathDefaultsKey) private var portPath = ""
   @AppStorage(UpdateNotifier.badgeKey) private var showBadge = true
   @AppStorage(UpdateNotifier.notifyKey) private var notifyOnUpdates = false
+  @Environment(AppUpdateModel.self) private var appUpdates
+  @AppStorage(AppUpdateModel.autoCheckKey) private var autoCheckApp = true
+  @AppStorage(AppUpdateModel.prereleasesKey) private var includePrereleases = false
   @State private var pathDraft = ""
   /// What's wrong with the typed `port` path; updated when it changes rather
   /// than checking the disk on every redraw.
@@ -43,6 +46,27 @@ struct GeneralSettingsView: View {
           "The count is refreshed after every sync and upgrade. Notifications need permission "
             + "from macOS and work in the packaged app.")
       }
+      Section {
+        Toggle("Check for new versions of \(AppInfo.name) daily", isOn: $autoCheckApp)
+        Toggle("Include pre-releases", isOn: $includePrereleases)
+        HStack {
+          Button("Check Now") {
+            Task {
+              appUpdates.clearSkipped()
+              await appUpdates.check()
+            }
+          }
+          .disabled(appUpdates.isChecking)
+          if appUpdates.isChecking { ProgressView().controlSize(.small) }
+          Text(appUpdateStatus).foregroundStyle(.secondary)
+        }
+      } header: {
+        Text("\(AppInfo.name) updates")
+      } footer: {
+        Text(
+          "Looks for new releases on GitHub. Updates are not installed automatically: "
+            + "View Release opens the download page.")
+      }
       Section("MacPorts location") {
         pathEditor
       }
@@ -53,6 +77,16 @@ struct GeneralSettingsView: View {
       UpdateNotifier.shared.updateBadge(count: UpdateNotifier.shared.lastCount)
     }
     .onChange(of: notifyOnUpdates) { if notifyOnUpdates { UpdateNotifier.requestAuthorization() } }
+    .onChange(of: includePrereleases) { Task { await appUpdates.check() } }
+  }
+
+  private var appUpdateStatus: String {
+    switch appUpdates.outcome {
+    case nil: "Version \(appUpdates.currentVersion)"
+    case .upToDate?: "Up to date (version \(appUpdates.currentVersion))"
+    case .updateAvailable(let release)?: "\(release.tag) is available"
+    case .failed(let message)?: message
+    }
   }
 
   private var pathEditor: some View {

@@ -352,6 +352,7 @@ struct ContentView: View {
   @AppStorage(PortClient.executablePathDefaultsKey) private var portPath = ""
   @AppStorage(SettingsPane.defaultsKey) private var settingsPane = SettingsPane.general
   @Environment(\.openSettings) private var openSettings
+  @Environment(AppUpdateModel.self) private var appUpdates
   @State private var detailCache: PortDetailCache
   @State private var actions: PortActions
   @State private var groupSelection: String?
@@ -454,6 +455,7 @@ struct ContentView: View {
         // On appearing, and after each command (a sync changes the tree's age).
         await configurationModel.load()
       }
+      .task { await appUpdates.checkIfDue() }
       .task(id: mode) {
         if !searchIsEnabled { search = "" }
         if currentMode == .outdated { await outdatedModel.loadIfStale() }
@@ -707,6 +709,13 @@ struct ContentView: View {
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .safeAreaInset(edge: .bottom, spacing: 0) { syncBar }
+    .safeAreaInset(edge: .top, spacing: 0) {
+      if let release = appUpdates.offered {
+        AppUpdateBar(
+          release: release, currentVersion: appUpdates.currentVersion.description,
+          skip: { appUpdates.skip(release) })
+      }
+    }
     .onChange(of: scope) {
       if currentMode == .available, searchModel.hasSearched, !search.isEmpty {
         searchModel.search(search, scope: scope)

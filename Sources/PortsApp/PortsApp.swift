@@ -44,12 +44,14 @@ struct MacPortsApp: App {
   // Shared by every window and the Settings window.
   @State private var configuration = ConfigurationModel()
   @State private var health = HealthModel()
+  @State private var appUpdates = AppUpdateModel()
   @Environment(\.openWindow) private var openWindow
 
   var body: some Scene {
     WindowGroup {
       ContentView(activity: activity, configuration: configuration)
         .environment(activity)
+        .environment(appUpdates)
         // Must be at least the sum of the three columns' minimum widths
         // (150 + 380 + 590), or the detail column gets squeezed below its
         // minimum and its toolbar controls spill into the content column.
@@ -59,6 +61,7 @@ struct MacPortsApp: App {
       AppCommands(activity: activity, configuration: configuration)
       CommandGroup(replacing: .appInfo) {
         Button("About \(AppInfo.name)") { showAbout() }
+        Button("Check for Updates…") { Task { await checkForUpdates() } }
       }
       CommandGroup(replacing: .help) {
         Button("\(AppInfo.name) Help") { openWindow(id: "help") }
@@ -76,7 +79,26 @@ struct MacPortsApp: App {
     Settings {
       SettingsView(configuration: configuration, health: health)
         .environment(activity)
+        .environment(appUpdates)
     }
+  }
+
+  /// Checks now, and says so when there is nothing newer or GitHub can't be
+  /// reached; a newer release shows in the window's bar.
+  private func checkForUpdates() async {
+    appUpdates.clearSkipped()
+    let alert = NSAlert()
+    switch await appUpdates.check() {
+    case .updateAvailable: return
+    case .upToDate:
+      alert.messageText = "\(AppInfo.name) is up to date"
+      alert.informativeText = "You have the newest version, \(appUpdates.currentVersion)."
+    case .failed(let message):
+      alert.alertStyle = .warning
+      alert.messageText = "Couldn't check for updates"
+      alert.informativeText = message
+    }
+    alert.runModal()
   }
 
   private func showAbout() {
