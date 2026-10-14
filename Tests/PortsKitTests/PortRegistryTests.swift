@@ -88,6 +88,38 @@ import Testing
     #expect(try registry.dependents(of: "Cairo").isEmpty)
   }
 
+  @Test func leavesAreInstalledPortsNothingDependsOn() throws {
+    let (registry, directory) = try Self.makeRegistry([
+      "INSERT INTO ports VALUES (1, 'zlib', 0, '1', 0, '', 'installed')",
+      "INSERT INTO ports VALUES (2, 'curl', 0, '1', 0, '', 'installed')",
+      "INSERT INTO ports VALUES (3, 'Cairo', 0, '1', 0, '', 'installed')",
+      "INSERT INTO ports VALUES (4, 'old', 0, '1', 0, '', 'imaged')",
+      "INSERT INTO ports VALUES (5, 'self', 0, '1', 0, '', 'installed')",
+      "INSERT INTO ports VALUES (6, 'removed', 0, '1', 0, '', 'uninstalled')",
+      "INSERT INTO ports VALUES (7, 'lonely', 0, '1', 0, '', 'installed')",
+      "INSERT INTO dependencies VALUES (2, 'zlib', '')",
+      "INSERT INTO dependencies VALUES (3, 'curl', '')",
+      "INSERT INTO dependencies VALUES (3, 'zlib', '')",
+      "INSERT INTO dependencies VALUES (5, 'self', '')",
+      "INSERT INTO dependencies VALUES (6, 'lonely', '')",
+    ])
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    // zlib and curl are needed; a dependency from a removed port or from
+    // itself doesn't count; inactive versions are listed like active ones.
+    #expect(try registry.leafPorts() == ["Cairo", "old", "self", "lonely"])
+  }
+
+  @Test func inactiveDependentsStillKeepAPortOutOfTheLeaves() throws {
+    let (registry, directory) = try Self.makeRegistry([
+      "INSERT INTO ports VALUES (1, 'zlib', 0, '1', 0, '', 'installed')",
+      "INSERT INTO ports VALUES (2, 'curl', 0, '1', 0, '', 'imaged')",
+      "INSERT INTO dependencies VALUES (2, 'zlib', '')",
+    ])
+    defer { try? FileManager.default.removeItem(at: directory) }
+    #expect(try registry.leafPorts() == ["curl"])
+  }
+
   @Test func missingOrCorruptDatabaseThrows() throws {
     let missing = PortRegistry(path: "/nonexistent/registry.db")
     #expect(throws: PortRegistryError.self) { try missing.installedPorts() }

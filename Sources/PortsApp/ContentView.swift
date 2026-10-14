@@ -19,21 +19,28 @@ final class InstalledPortsModel {
   /// True when the last load failed because there is no `port` at the
   /// configured path.
   private(set) var isPortMissing = false
+  /// Names of ports nothing else depends on; nil when it can't be told.
+  private(set) var leaves: Set<String>?
 
   typealias Fetch = @Sendable () async throws -> [InstalledPort]
   typealias FetchUsage = @Sendable () async -> [String: Int64]?
   private let fetch: Fetch
+  typealias FetchLeaves = @Sendable () async -> Set<String>?
   private let fetchUsage: FetchUsage
+  private let fetchLeaves: FetchLeaves
   private var usageTask: Task<Void, Never>?
 
   /// The defaults use a new client each time, so a changed `port` path
   /// applies at once. Sizes are only measured for the default `fetch`, unless
-  /// `fetchUsage` is given too.
-  init(fetch: Fetch? = nil, fetchUsage: FetchUsage? = nil) {
+  /// `fetchUsage` is given too; likewise for `fetchLeaves`.
+  init(fetch: Fetch? = nil, fetchUsage: FetchUsage? = nil, fetchLeaves: FetchLeaves? = nil) {
     let live: FetchUsage = { await PortClient().diskUsage() }
     self.fetch = fetch ?? { try await PortClient().installedPorts() }
     let none: FetchUsage = { nil }
     self.fetchUsage = fetchUsage ?? (fetch == nil ? live : none)
+    let liveLeaves: FetchLeaves = { await PortClient().leafPorts() }
+    let noLeaves: FetchLeaves = { nil }
+    self.fetchLeaves = fetchLeaves ?? (fetch == nil ? liveLeaves : noLeaves)
   }
 
   func load() async {
@@ -43,10 +50,12 @@ final class InstalledPortsModel {
     defer { isLoading = false }
     do {
       ports = try await fetch()
+      leaves = await fetchLeaves()
       measureUsage()
     } catch {
       usageTask?.cancel()
       ports = []
+      leaves = nil
       errorMessage = error.localizedDescription
       if case PortClientError.notInstalled = error { isPortMissing = true }
     }
@@ -351,6 +360,7 @@ struct ContentView: View {
   @State private var search = ""
   @State private var scope = SearchScope.name
   @State private var prebuiltOnly = false
+  @State private var leavesOnly = false
   @State private var sortOrder = [KeyPathComparator(\InstalledPort.name)]
 
   @State private var selection: InstalledPort.ID?
@@ -616,6 +626,12 @@ struct ContentView: View {
       }
       .help(ActivityToolbarIcon.help(activity))
     }
+    if currentMode == .installed, model.leaves != nil {
+      ToolbarItem {
+        Toggle("Leaves only", systemImage: "leaf", isOn: $leavesOnly)
+          .help("Show only ports that no other installed port depends on")
+      }
+    }
     if currentMode == .available {
       ToolbarItem {
         Toggle("Pre-built only", systemImage: "checkmark.seal", isOn: $prebuiltOnly)
@@ -646,7 +662,7 @@ struct ContentView: View {
       case .installed:
         InstalledListView(
           model: model, outdated: outdatedModel, actions: actions, filter: search,
-          sortOrder: $sortOrder, selection: $selection,
+          leavesOnly: leavesOnly, sortOrder: $sortOrder, selection: $selection,
           showPortLocation: {
             settingsPane = .general
             openSettings()
