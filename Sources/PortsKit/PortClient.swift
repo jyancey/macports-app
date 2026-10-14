@@ -200,6 +200,12 @@ public struct PortClient: Sendable {
     try await runStreaming(action: "clean --all", name: name, onOutput: onOutput)
   }
 
+  /// Deletes the work directories, distfiles and logs of every installed
+  /// port (`port clean --all installed`).
+  public func cleanAll(onOutput: @escaping @MainActor @Sendable (String) -> Void) async throws {
+    try await runStreaming(action: "clean --all", name: "installed", onOutput: onOutput)
+  }
+
   /// Ports with a newer version available.
   public func outdated() async throws -> [OutdatedPort] {
     OutdatedParser.parse(try await run(["-q", "outdated"]))

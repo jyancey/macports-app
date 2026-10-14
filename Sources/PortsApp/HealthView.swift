@@ -22,15 +22,20 @@ final class HealthModel {
 
   typealias Diagnose = @Sendable () async throws -> [DiagnosticFinding]
   typealias Reclaim = @Sendable () async throws -> Void
+  typealias CleanAll = @Sendable (@escaping @MainActor @Sendable (String) -> Void) async throws
+    -> Void
   private let diagnose: Diagnose
   private let reclaim: Reclaim
+  private let cleanAllPorts: CleanAll
 
   init(
     diagnose: @escaping Diagnose = { try await PortClient().diagnoseFindings() },
-    reclaim: @escaping Reclaim = { try await PortClient().reclaimInTerminal() }
+    reclaim: @escaping Reclaim = { try await PortClient().reclaimInTerminal() },
+    cleanAll: @escaping CleanAll = { try await PortClient().cleanAll(onOutput: $0) }
   ) {
     self.diagnose = diagnose
     self.reclaim = reclaim
+    self.cleanAllPorts = cleanAll
   }
 
   /// Errors first, then warnings, otherwise in the order `port` reported them.
@@ -75,6 +80,16 @@ final class HealthModel {
     registryStatus = await PortClient().registryStatus()
   }
 
+  /// Deletes build leftovers of every installed port, through the Activity
+  /// log. Does nothing while another command is running.
+  func cleanAll(activity: ActivityLog) async {
+    guard !activity.isRunning else { return }
+    let clean = cleanAllPorts
+    await activity.run("sudo port clean --all installed", name: "clean") { out in
+      try await clean(out)
+    }
+  }
+
   func reclaimInTerminal() async {
     reclaimFailure = nil
     do { try await reclaim() } catch { reclaimFailure = error.localizedDescription }
@@ -84,6 +99,7 @@ final class HealthModel {
 /// Runs `port diagnose` and lists what it finds, checks the registry, and
 /// launches `port reclaim` in Terminal.
 struct HealthView: View {
+  @Environment(ActivityLog.self) private var activity
   let model: HealthModel
   /// Where the registry is and whether it can be read, shown before the
   /// integrity check has run.
@@ -163,6 +179,11 @@ struct HealthView: View {
         Button("Reclaim in Terminal", systemImage: "externaldrive.badge.minus") {
           Task { await model.reclaimInTerminal() }
         }
+        Button("Clean All Build Files", systemImage: "sparkles") {
+          Task { await model.cleanAll(activity: activity) }
+        }
+        .disabled(activity.isRunning)
+        .help("Run port clean --all on every installed port")
         if let reclaimFailure = model.reclaimFailure {
           StatusLabel(reclaimFailure, systemImage: "xmark.octagon.fill", color: .red)
         }
@@ -170,8 +191,10 @@ struct HealthView: View {
         Text("Reclaim disk space")
       } footer: {
         Text(
-          "Opens Terminal and runs sudo port reclaim. It lists inactive ports, unneeded unrequested ports "
-            + "and old distfiles, and asks what to remove. Nothing is deleted until you choose."
+          "Reclaim opens Terminal and runs sudo port reclaim. It lists inactive ports, unneeded unrequested ports "
+            + "and old distfiles, and asks what to remove. Nothing is deleted until you choose. "
+            + "Clean All Build Files deletes the work directories, downloaded distfiles and logs of every "
+            + "installed port; installed software is not touched."
         )
       }
     }
