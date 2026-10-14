@@ -1,0 +1,150 @@
+// HelperModelTests.swift - Tests for installing, approving and using the privileged helper.
+//
+// Created by John Yancey on 06/12/2024.
+// Copyright © 2026 John Yancey. All rights reserved.
+//
+import Foundation
+import PortsKit
+import ServiceManagement
+import Testing
+
+@testable import MacPortsApp
+
+@MainActor
+@Suite(.serialized) struct HelperModelTests {
+  /// A stand-in for macOS's registration of the helper.
+  final class Registry {
+    var status = SMAppService.Status.notRegistered
+    var signed = true
+    var registerFailure: (any Error)?
+    var registered = 0
+    var unregistered = 0
+    var settingsOpened = 0
+    /// What the status becomes once registered, as when the user must approve it.
+    var afterRegister = SMAppService.Status.requiresApproval
+  }
+
+  struct Refused: LocalizedError {
+    var errorDescription: String? { "Operation not permitted" }
+  }
+
+  let registry = Registry()
+  let backends = PrivilegedBackends()
+
+  func makeModel() -> HelperModel {
+    let registry = registry
+    return HelperModel(
+      registration: HelperModel.Registration(
+        status: { registry.status },
+        register: {
+          if let failure = registry.registerFailure { throw failure }
+          registry.registered += 1
+          registry.status = registry.afterRegister
+        },
+        unregister: {
+          registry.unregistered += 1
+          registry.status = .notRegistered
+        },
+        openSettings: { registry.settingsOpened += 1 },
+        isSignedByDeveloper: { registry.signed }),
+      backends: backends, watchActivation: false)
+  }
+
+  @Test func startsNotInstalledAndUsesNoHelper() {
+    let model = makeModel()
+    #expect(model.status == .notInstalled)
+    #expect(backends.helper == nil)
+  }
+
+  @Test func anEnabledHelperIsUsedForCommands() {
+    registry.status = .enabled
+    let model = makeModel()
+    #expect(model.status == .enabled)
+    #expect(backends.helper != nil)
+  }
+
+  @Test func installingAsksForApprovalAndOpensSystemSettings() {
+    let model = makeModel()
+    model.install()
+    #expect(registry.registered == 1)
+    #expect(model.status == .needsApproval)
+    #expect(registry.settingsOpened == 1)
+    #expect(backends.helper == nil)
+    #expect(model.failure == nil)
+  }
+
+  @Test func comingBackAfterApprovingEnablesTheHelper() {
+    let model = makeModel()
+    model.install()
+    registry.status = .enabled
+    model.refresh()
+    #expect(model.status == .enabled)
+    #expect(backends.helper != nil)
+  }
+
+  @Test func anApprovedInstallDoesNotOpenSettings() {
+    registry.afterRegister = .enabled
+    let model = makeModel()
+    model.install()
+    #expect(model.status == .enabled)
+    #expect(registry.settingsOpened == 0)
+  }
+
+  @Test func aFailedInstallIsReported() {
+    registry.registerFailure = Refused()
+    let model = makeModel()
+    model.install()
+    #expect(model.failure == "Operation not permitted")
+    #expect(model.status == .notInstalled)
+    #expect(registry.settingsOpened == 0)
+  }
+
+  @Test func removingStopsUsingTheHelper() async {
+    registry.status = .enabled
+    let model = makeModel()
+    await model.remove()
+    #expect(registry.unregistered == 1)
+    #expect(model.status == .notInstalled)
+    #expect(backends.helper == nil)
+  }
+
+  @Test func aBuildNotSignedByTheDeveloperCannotUseTheHelper() {
+    registry.signed = false
+    registry.status = .enabled
+    let model = makeModel()
+    guard case .unsupported = model.status else {
+      Issue.record("expected unsupported, got \(model.status)")
+      return
+    }
+    #expect(backends.helper == nil)
+  }
+
+  @Test func aBuildWithoutTheHelperInsideIsUnsupported() {
+    registry.status = .notFound
+    let model = makeModel()
+    guard case .unsupported = model.status else {
+      Issue.record("expected unsupported, got \(model.status)")
+      return
+    }
+  }
+
+  @Test func theLastProblemShowsOnlyWhileTheHelperIsEnabled() {
+    backends.lastProblem = "the helper is out of date"
+    let model = makeModel()
+    #expect(model.lastProblem == nil)
+    registry.status = .enabled
+    model.refresh()
+    #expect(model.lastProblem == "the helper is out of date")
+  }
+
+  @Test func confirmationCanBeSwitchedOff() async throws {
+    UserDefaults.standard.set(false, forKey: HelperModel.confirmKey)
+    defer { UserDefaults.standard.removeObject(forKey: HelperModel.confirmKey) }
+    // Returns at once, without asking for Touch ID.
+    try await HelperModel.confirm(reason: "Run sudo port sync")
+  }
+
+  @Test func thisTestBuildIsNotSignedByTheDeveloper() {
+    #expect(!HelperModel.Registration.isSignedByDeveloper())
+  }
+}

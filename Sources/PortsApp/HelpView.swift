@@ -63,7 +63,7 @@ struct HelpView: View {
             "General sets Activity pane behavior, verbose output (full port output, but slower) and the location of the port executable.",
             "MacPorts shows the installation's version, paths and sources, and lets you add or remove sources.",
             "Self-update and Sync (in the MacPorts pane or the MacPorts menu) refresh MacPorts and the ports tree.",
-            "Commands that change your system use macOS administrator authorization.",
+            "Commands that change your system need administrator rights. Install the privileged helper in General (Administrator access) to approve it once in System Settings and then confirm each action with Touch ID; without it, each command shows the macOS password prompt.",
           ])
       }
       .padding(24)
