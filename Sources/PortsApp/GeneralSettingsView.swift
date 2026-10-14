@@ -12,6 +12,8 @@ struct GeneralSettingsView: View {
   @AppStorage(PortClient.verboseDefaultsKey) private var verbose = false
   @AppStorage(ActivityLog.autoOpenKey) private var autoOpen = true
   @AppStorage(PortClient.executablePathDefaultsKey) private var portPath = ""
+  @AppStorage(UpdateNotifier.badgeKey) private var showBadge = true
+  @AppStorage(UpdateNotifier.notifyKey) private var notifyOnUpdates = false
   @State private var pathDraft = ""
   /// What's wrong with the typed `port` path; updated when it changes rather
   /// than checking the disk on every redraw.
@@ -31,12 +33,26 @@ struct GeneralSettingsView: View {
           "Verbose output passes -v to port so the Activity pane shows full configure and build "
             + "output. Turn it off for faster, quieter runs.")
       }
+      Section {
+        Toggle("Show the number of outdated ports on the Dock icon", isOn: $showBadge)
+        Toggle("Notify when a sync finds new updates", isOn: $notifyOnUpdates)
+      } header: {
+        Text("Updates")
+      } footer: {
+        Text(
+          "The count is refreshed after every sync and upgrade. Notifications need permission "
+            + "from macOS and work in the packaged app.")
+      }
       Section("MacPorts location") {
         pathEditor
       }
     }
     .formStyle(.grouped)
     .task { pathDraft = PortClient.configuredExecutablePath }
+    .onChange(of: showBadge) {
+      UpdateNotifier.shared.updateBadge(count: UpdateNotifier.shared.lastCount)
+    }
+    .onChange(of: notifyOnUpdates) { if notifyOnUpdates { UpdateNotifier.requestAuthorization() } }
   }
 
   private var pathEditor: some View {

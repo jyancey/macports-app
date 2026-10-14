@@ -459,6 +459,15 @@ struct ContentView: View {
         if currentMode == .outdated { await outdatedModel.loadIfStale() }
         if currentMode == .selections { await selectionsModel.loadIfStale() }
       }
+      .onChange(of: outdatedModel.ports) {
+        UpdateNotifier.shared.updateBadge(count: outdatedModel.ports.count)
+      }
+      .task(id: activity.completedRuns) {
+        // A sync or self-update may have found new versions.
+        guard ["sync", "selfupdate"].contains(activity.lastCompletedName) else { return }
+        await outdatedModel.load()
+        UpdateNotifier.shared.syncFinished(outdated: outdatedModel.ports)
+      }
       .onChange(of: activity.completedRuns) {
         // A command may have changed what these show; reload on the next visit.
         outdatedModel.invalidate()
