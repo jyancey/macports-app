@@ -123,6 +123,27 @@ struct FakePrefix {
     #expect(try await prefix.client.macPortsInfo().lastSync == synced)
   }
 
+  @Test func syncStatusIsStaleAfterAWeek() {
+    var info = MacPortsInfo(
+      version: "", executablePath: "", prefix: "", dataPath: "", applicationsDir: "",
+      sources: [], sourcesConfPath: "", lastSync: nil)
+    let now = Date(timeIntervalSince1970: 1_800_000_000)
+    #expect(info.syncStatus(now: now) == .unknown)
+
+    let day: TimeInterval = 24 * 60 * 60
+    info.lastSync = now - 6 * day
+    #expect(info.syncStatus(now: now) == .fresh(now - 6 * day))
+    info.lastSync = now - 8 * day
+    #expect(info.syncStatus(now: now) == .stale(now - 8 * day))
+    // The limit itself is still fresh; a custom limit applies.
+    info.lastSync = now - 7 * day
+    #expect(info.syncStatus(now: now) == .fresh(now - 7 * day))
+    #expect(info.syncStatus(now: now, staleAfter: day) == .stale(now - 7 * day))
+    // A clock set back leaves a sync date in the future.
+    info.lastSync = now + day
+    #expect(info.syncStatus(now: now) == .fresh(now + day))
+  }
+
   @Test func lastSyncIsUnknownWithoutAPortIndex() async throws {
     let prefix = try FakePrefix(conf: "")
     defer { prefix.remove() }
