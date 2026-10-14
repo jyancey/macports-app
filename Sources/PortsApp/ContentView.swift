@@ -440,6 +440,10 @@ struct ContentView: View {
       .task(id: outdatedModel.ports.map(\.availableVersion) + [String(model.ports.count)]) {
         outdatedModel.checkBinaries(installed: model.ports)
       }
+      .task(id: activity.completedRuns) {
+        // On appearing, and after each command (a sync changes the tree's age).
+        await configurationModel.load()
+      }
       .task(id: mode) {
         if !searchIsEnabled { search = "" }
         if currentMode == .outdated { await outdatedModel.loadIfStale() }
@@ -677,6 +681,7 @@ struct ContentView: View {
       }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .safeAreaInset(edge: .bottom, spacing: 0) { syncBar }
     .onChange(of: scope) {
       if currentMode == .available, searchModel.hasSearched, !search.isEmpty {
         searchModel.search(search, scope: scope)
@@ -685,6 +690,17 @@ struct ContentView: View {
     .onSubmit(of: .search) {
       guard currentMode == .available else { return }
       searchModel.search(search, scope: scope)
+    }
+  }
+
+  /// The ports tree's age, under the lists whose results come from it.
+  @ViewBuilder private var syncBar: some View {
+    if currentMode == .available || currentMode == .outdated,
+      let info = configurationModel.info
+    {
+      PortsTreeSyncBar(status: info.syncStatus(), isBusy: activity.isRunning) {
+        MacPortsMaintenance.sync.run(activity: activity, configuration: configurationModel)
+      }
     }
   }
 
