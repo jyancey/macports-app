@@ -23,6 +23,8 @@ protocol PortCommandRunner: Sendable {
   func uninstallInactive(onOutput: @escaping @MainActor @Sendable (String) -> Void) async throws
   func activate(_ port: InstalledPort, onOutput: @escaping @MainActor @Sendable (String) -> Void)
     async throws
+  func clean(_ name: String, onOutput: @escaping @MainActor @Sendable (String) -> Void)
+    async throws
 }
 
 /// Runs each command with a new `PortClient`, so a `port` path or verbose
@@ -69,6 +71,12 @@ struct LivePortCommands: PortCommandRunner {
     async throws
   {
     try await PortClient().activate(port, onOutput: onOutput)
+  }
+
+  func clean(_ name: String, onOutput: @escaping @MainActor @Sendable (String) -> Void)
+    async throws
+  {
+    try await PortClient().clean(name, onOutput: onOutput)
   }
 }
 
@@ -198,6 +206,18 @@ final class PortActions {
     let specs = ports.map { "\($0.name) \($0.versionSpec)" }.joined(separator: " ")
     await run("sudo port uninstall \(specs)", names: ports.map(\.name)) { out in
       try await runner.uninstall(ports, onOutput: out)
+    }
+  }
+
+  // MARK: Clean
+
+  /// Deletes the port's work directory and distfiles. Nothing installed is
+  /// affected, so there is no confirmation.
+  func clean(_ name: String) async {
+    guard canStart(name) else { return }
+    let runner = self.runner
+    await run("sudo port clean --all \(name)", names: [name]) { out in
+      try await runner.clean(name, onOutput: out)
     }
   }
 

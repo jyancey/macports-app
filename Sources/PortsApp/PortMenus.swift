@@ -56,6 +56,8 @@ enum PortMenus {
       }
       Button("Uninstall…", role: .destructive) { actions.requestUninstall(port.name) }
         .disabled(!actions.canStart(port.name))
+      Button("Clean Build Files") { Task { await actions.clean(port.name) } }
+        .disabled(!actions.canStart(port.name))
     } else {
       inactiveItems(port, actions: actions)
     }
