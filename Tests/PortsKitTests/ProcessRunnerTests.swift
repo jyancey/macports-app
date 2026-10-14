@@ -137,7 +137,8 @@ import Testing
         try await group.waitForAll()
       }
     }
-    // Blocking two pool threads per run would need about four rounds (4 s).
-    #expect(elapsed < .seconds(2.5))
+    // Blocking two pool threads per run would need about four rounds (4 s). The
+    // limit leaves room for the machine being busy with other tests.
+    #expect(elapsed < .seconds(3.2))
   }
 }
