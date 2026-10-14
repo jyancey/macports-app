@@ -4,9 +4,22 @@
 // Copyright © 2026 John Yancey. All rights reserved.
 //
 import SwiftUI
+import UserNotifications
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
+  /// Shows the update notification even while the app is in front, such as
+  /// when the sync was started from its own window.
+  func userNotificationCenter(
+    _ center: UNUserNotificationCenter, willPresent notification: UNNotification
+  ) async -> UNNotificationPresentationOptions {
+    [.banner, .sound]
+  }
+
   func applicationDidFinishLaunching(_ notification: Notification) {
+    // Unbundled runs (`swift run`) have no notification center.
+    if Bundle.main.bundleIdentifier != nil {
+      UNUserNotificationCenter.current().delegate = self
+    }
     // Lets the app show a window and menu bar when launched via `swift run`.
     NSApp.setActivationPolicy(.regular)
     NSApp.activate(ignoringOtherApps: true)
