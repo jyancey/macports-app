@@ -116,6 +116,33 @@ actor FakePortCommands: PortCommandRunner {
     await actions.clean("zlib")
     #expect(await runner.calls == ["clean zlib"])
     #expect(log.chunks.joined().hasPrefix("$ sudo port clean --all zlib\n"))
+    #expect(reloads.count == 1)
+    #expect(!actions.isWorking(on: "zlib"))
+  }
+
+  @Test func failedCleanIsReportedAndStillReloads() async {
+    let actions = makeActions()
+    await runner.setFailing(true)
+    await actions.clean("zlib")
+    #expect(log.lastRunFailed)
+    #expect(reloads.count == 1)
+    #expect(!actions.isWorking(on: "zlib"))
+  }
+
+  @Test func cleanDoesNothingWhileACommandIsRunning() async throws {
+    let actions = makeActions()
+    let gates = Gates()
+    let busy = Task {
+      await log.run("sudo port clean --all zlib", name: "zlib") { _ in
+        try await gates.pass("clean")
+      }
+    }
+    #expect(try await until { log.isRunning })
+    await actions.clean("xz")
+    #expect(await runner.calls.isEmpty)
+    #expect(reloads.count == 0)
+    await gates.open("clean")
+    _ = await busy.value
   }
 
   @Test func listsReloadAfterAFailedCommand() async {
