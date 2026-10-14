@@ -30,9 +30,9 @@ enum AppInfo {
   static let name = "MacPortsApp"
   // Fallback used when run unbundled (`swift run`); packaged builds read Info.plist.
   static let version =
-    Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.5.1"
+    Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.5.2"
   static let build =
-    Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0.5.1"
+    Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0.5.2"
   static let author = "John Yancey"
   static let copyright = "© 2026 John Yancey"
 }
@@ -116,7 +116,7 @@ struct MacPortsApp: App {
       .credits: credits,
       NSApplication.AboutPanelOptionKey(rawValue: "Copyright"): AppInfo.copyright,
     ]
-    if let url = Bundle.module.url(forResource: "AppIcon", withExtension: "png"),
+    if let url = AppResources.url(forResource: "AppIcon", withExtension: "png"),
       let icon = NSImage(contentsOf: url)
     {
       options[.applicationIcon] = icon
