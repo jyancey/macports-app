@@ -1,10 +1,10 @@
-# MacPorts
+# MacPortsApp
 
 A native macOS GUI for [MacPorts](https://www.macports.org). It sits on top of an existing MacPorts installation and drives the `port` command line tool.
 
 ## How it works
 
-MacPorts App is a native SwiftUI front end for an installed MacPorts environment. It uses the configured `port` executable for searches, installs, upgrades, removals, diagnostics, maintenance, and `port select` operations. Commands that modify the system request macOS administrator authorization, and their output is streamed to the Activity pane so long-running builds remain visible and can be stopped.
+MacPortsApp is a native SwiftUI front end for an installed MacPorts environment. It uses the configured `port` executable for searches, installs, upgrades, removals, diagnostics, maintenance, and `port select` operations. Commands that modify the system request macOS administrator authorization, and their output is streamed to the Activity pane so long-running builds remain visible and can be stopped.
 
 The main window is organized into tabs for installed, available, outdated and inactive ports, along with `port select` selections. App preferences, MacPorts configuration, and health checks live in the Settings window (⌘,). Selecting a port opens details such as its description, variants, dependencies, dependents, and installed files. Installed-port and file information is read directly from the MacPorts registry when possible, while available-port searches use the ports tree.
 
@@ -19,20 +19,24 @@ Features include:
 - Clean a port's work directory and downloaded distfiles from its detail pane or context menu, or clean every installed port at once from Settings → Health.
 - Run `port diagnose`, check registry integrity, and launch `port reclaim` in Terminal.
 - See when the ports tree was last synced under the Available and Outdated lists, with a warning and a Sync Now button when it is more than a week old.
-- Show the number of outdated ports on the Dock icon, and optionally get a notification when a sync finds new updates (notifications need the packaged app).
-- Check GitHub for a new version of the app once a day or from the app menu (Check for Updates…), with an option to include pre-releases. Updates are not installed automatically: View Release opens the download page.
+- Show the number of outdated ports on the Dock icon, and optionally get a notification when a sync finds new updates (both set in Settings → General; notifications need the packaged app).
+- Check GitHub's public releases list for a new version of the app once a day or from the app menu (Check for Updates…), with an option to include pre-releases. Updates are not installed automatically: View Release opens the download page. The daily check can be turned off in Settings → General.
 - Configure the `port` executable path, verbosity, Activity-pane behavior, and ports sources in Settings (⌘,), and run Self-update or Sync from Settings or the MacPorts menu.
 - Use keyboard shortcuts, context menus, resizable list/detail panes, and a persistent Activity log.
 
 ## Status
 
-Early development.
+Early development. See the [releases](https://github.com/jyancey/macports-app/releases) for the latest version.
+
+## Install
+
+Download the zip, dmg or pkg for the newest release from the [releases page](https://github.com/jyancey/macports-app/releases). Builds are for Apple Silicon only and are ad-hoc signed, not notarized, so macOS may ask you to approve the app the first time you open it (System Settings → Privacy & Security → Open Anyway). Use 0.5.2 or later: earlier releases built by the release workflow crash at launch.
 
 ## Architecture
 
 How the main views fit together. `MacPortsApp` owns the app-wide models (`ActivityLog`, `ConfigurationModel`, `HealthModel`, `AppUpdateModel`) and shares them between the main window and the Settings window.
 
-```
+```text
 MacPortsApp (App)
 ├─ WindowGroup
 │  └─ ContentView
@@ -100,7 +104,7 @@ InstallOptionsView (sheet)
 
 ## App icon
 
-The About panel and the empty state show the app icon (`Resources/AppIcon.png`).
+The About panel and the empty state show the app icon (`Sources/PortsApp/Resources/AppIcon.png`). Load bundled resources through `AppResources`, not `Bundle.module`: the packaged app keeps the resource bundle in `Contents/Resources`, where `Bundle.module` doesn't look, and it stops the app with a fatal error when it can't find the bundle.
 
 ## Requirements
 
@@ -140,12 +144,14 @@ CI (`.github/workflows/ci.yml`) builds and tests every push and pull request to 
 Releases follow git flow, and `scripts/release.sh` does the whole sequence: it branches `release/<version>` from `develop`, bumps the fallback version in `Sources/PortsApp/PortsApp.swift`, runs the tests, merges into `main`, tags `main` with an annotated tag whose message holds the release notes, and merges `main` back into `develop`:
 
 ```sh
-scripts/release.sh --dry-run 0.4.3          # show the notes and steps
-scripts/release.sh 0.4.3                    # cut it locally
-scripts/release.sh --notes notes.md --push 0.4.3   # own notes, push to every remote
+scripts/release.sh --dry-run 0.6.0          # show the notes and steps
+scripts/release.sh 0.6.0                    # cut it locally
+scripts/release.sh --notes notes.md --push 0.6.0   # own notes, push to every remote
 ```
 
 Without `--notes`, the notes list the commit subjects on `develop` since the last release. The script refuses to run with uncommitted changes, an existing tag, a version that doesn't come after the current one, or a remote `main`/`develop` that has commits the local one lacks. If a step fails it stops and says which, leaving the repository as it is. Without `--push` it prints the push commands instead.
+
+`release.sh` always branches from `develop`. For a fix to a release that is already out, use a git flow hotfix instead: `git flow hotfix start <version>`, make the fix, bump the fallback version in `Sources/PortsApp/PortsApp.swift`, then `git flow hotfix finish <version> --messagefile notes.md` (the tag message becomes the release notes), and push `main`, `develop` and the tag.
 
 Pushing the tag runs the Release workflow (`.github/workflows/release.yml`). It checks that the tag matches the app's version (`scripts/release-notes.sh`), runs the tests, builds the zip, pkg and dmg with `scripts/package.sh`, and publishes a release with them attached. The tag message's body (or its subject, if there is no body) becomes the release notes. Tags containing a `-`, such as `0.5.0-rc.1`, are published as pre-releases. On GitHub the release is created with `gh`; on Gitea, `scripts/gitea-release.sh` uses the Gitea API. To rebuild an existing release, run the workflow by hand with the tag as input.
 
