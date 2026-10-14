@@ -69,6 +69,33 @@ final class Box: @unchecked Sendable { var fail = false }
     #expect(Int64(2_000_000).fileSize == "2 MB")
   }
 
+  func port(_ name: String, usage: Int64?) -> InstalledPort {
+    var port = port(name)
+    port.diskUsage = usage
+    return port
+  }
+
+  @Test func totalUsageSumsMeasuredVersions() {
+    #expect([InstalledPort]().totalUsage == nil)
+    #expect([port("a"), port("b")].totalUsage == nil)
+    #expect([port("a", usage: 100), port("b", usage: 0)].totalUsage == 100)
+    // Versions still being measured don't hide the others' sizes.
+    #expect([port("a", usage: 100), port("b", usage: 50), port("c")].totalUsage == 150)
+  }
+
+  @Test func installedSubtitleAddsTheSizeOnceKnown() {
+    #expect([port("a"), port("b")].installedSubtitle(of: 5) == "2 of 5")
+    let sized = [port("a", usage: 1_000_000), port("b", usage: 1_000_000)]
+    #expect(sized.installedSubtitle(of: 5) == "2 of 5 · \(Int64(2_000_000).fileSize)")
+  }
+
+  @Test func inactiveSubtitleSaysWhatRemovingWouldFree() {
+    #expect([port("a", active: false)].inactiveSubtitle == "1 inactive")
+    let sized = [port("a", usage: 3_000_000), port("b", usage: 1_000_000)]
+    #expect(sized.inactiveSubtitle == "2 inactive · \(Int64(4_000_000).fileSize) can be freed")
+    #expect([InstalledPort]().inactiveSubtitle == "0 inactive")
+  }
+
   @Test func filterMatchesNamesIgnoringCase() {
     let ports = [port("py313-numpy"), port("NumPy-docs"), port("zlib")]
     #expect(ports.matching("").map(\.name) == ["py313-numpy", "NumPy-docs", "zlib"])
