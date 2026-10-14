@@ -94,7 +94,7 @@ import Testing
     registry.registerFailure = Refused()
     let model = makeModel()
     model.install()
-    #expect(model.failure == "Operation not permitted")
+    #expect(model.failure?.hasPrefix("Operation not permitted (") == true)
     #expect(model.status == .notInstalled)
     #expect(registry.settingsOpened == 0)
   }
@@ -119,13 +119,27 @@ import Testing
     #expect(backends.helper == nil)
   }
 
-  @Test func aBuildWithoutTheHelperInsideIsUnsupported() {
+  @Test func aHelperMacOSCannotFindIsReportedAndCanStillBeTried() {
     registry.status = .notFound
+    registry.afterRegister = .requiresApproval
     let model = makeModel()
-    guard case .unsupported = model.status else {
-      Issue.record("expected unsupported, got \(model.status)")
-      return
-    }
+    #expect(model.status == .missing)
+    #expect(backends.helper == nil)
+    // Trying to install is how the real reason shows, or it works.
+    model.install()
+    #expect(registry.registered == 1)
+    #expect(model.status == .needsApproval)
+  }
+
+  @Test func aFailedInstallShowsTheErrorDomainAndCode() {
+    registry.status = .notFound
+    registry.registerFailure = NSError(
+      domain: "SMAppServiceErrorDomain", code: 1,
+      userInfo: [NSLocalizedDescriptionKey: "Operation not permitted"])
+    let model = makeModel()
+    model.install()
+    #expect(model.failure == "Operation not permitted (SMAppServiceErrorDomain 1)")
+    #expect(model.status == .missing)
   }
 
   @Test func theLastProblemShowsOnlyWhileTheHelperIsEnabled() {

@@ -109,6 +109,7 @@ struct GeneralSettingsView: View {
     switch helper.status {
     case .unsupported: "Not available"
     case .notInstalled: "Not installed"
+    case .missing: "Not found"
     case .needsApproval: "Waiting for your approval"
     case .enabled: "Enabled"
     }
@@ -120,6 +121,9 @@ struct GeneralSettingsView: View {
       Text(reason).foregroundStyle(.secondary)
     case .notInstalled:
       Button("Install Helper…", systemImage: "lock.shield") { helper.install() }
+    case .missing:
+      Text("macOS can't find the helper in this copy of MacPortsApp.").foregroundStyle(.secondary)
+      Button("Try Installing Anyway…", systemImage: "lock.shield") { helper.install() }
     case .needsApproval:
       HStack {
         Button("Open Login Items Settings…", systemImage: "gearshape") { helper.openSettings() }

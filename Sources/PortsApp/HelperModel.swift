@@ -8,6 +8,7 @@ import LocalAuthentication
 import PortsKit
 import Security
 import ServiceManagement
+import os
 
 /// The state of the privileged helper that runs `port` as root, and the
 /// controls for it in Settings. App-wide: while the helper is enabled,
@@ -23,10 +24,15 @@ final class HelperModel {
     /// macOS wouldn't let it install a helper (and the helper wouldn't trust it).
     case unsupported(String)
     case notInstalled
+    /// macOS can't find the helper's plist in this app. Installing is still
+    /// tried when asked, since the error it gives says why.
+    case missing
     /// Installed; waiting for the user to allow it in System Settings.
     case needsApproval
     case enabled
   }
+
+  private static let log = Logger(subsystem: HelperConstants.appIdentifier, category: "helper")
 
   private(set) var status: Status = .notInstalled
   /// What went wrong the last time installing or removing failed.
@@ -71,7 +77,9 @@ final class HelperModel {
       backends.helper = nil
       return
     }
-    switch registration.status() {
+    let registered = registration.status()
+    Self.log.info("helper registration status: \(registered.rawValue)")
+    switch registered {
     case .enabled:
       status = .enabled
       backends.helper = XPCPrivilegedHelper(confirm: { reason in
@@ -84,7 +92,7 @@ final class HelperModel {
       status = .notInstalled
       backends.helper = nil
     case .notFound:
-      status = .unsupported("The helper isn't part of this build of MacPortsApp.")
+      status = .missing
       backends.helper = nil
     @unknown default:
       status = .notInstalled
@@ -99,7 +107,9 @@ final class HelperModel {
     do {
       try registration.register()
     } catch {
-      failure = error.localizedDescription
+      let nsError = error as NSError
+      Self.log.error("registering the helper failed: \(nsError.domain) \(nsError.code): \(nsError.localizedDescription)")
+      failure = "\(nsError.localizedDescription) (\(nsError.domain) \(nsError.code))"
     }
     refresh()
     if status == .needsApproval { registration.openSettings() }
