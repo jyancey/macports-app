@@ -15,6 +15,10 @@ let package = Package(
       name: "MacPortsApp", dependencies: ["PortsKit"],
       path: "Sources/PortsApp",
       resources: [.process("Resources")]),
+    // The root helper the app installs with SMAppService; see scripts/package.sh.
+    .executableTarget(
+      name: "MacPortsHelper", dependencies: ["PortsKit"],
+      path: "Sources/PortsHelper"),
     .testTarget(name: "PortsKitTests", dependencies: ["PortsKit"]),
     .testTarget(name: "MacPortsAppTests", dependencies: ["MacPortsApp", "PortsKit"]),
   ]

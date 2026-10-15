@@ -4,7 +4,7 @@ A native macOS GUI for [MacPorts](https://www.macports.org). It sits on top of a
 
 ## How it works
 
-MacPortsApp is a native SwiftUI front end for an installed MacPorts environment. It uses the configured `port` executable for searches, installs, upgrades, removals, diagnostics, maintenance, and `port select` operations. Commands that modify the system request macOS administrator authorization, and their output is streamed to the Activity pane so long-running builds remain visible and can be stopped.
+MacPortsApp is a native SwiftUI front end for an installed MacPorts environment. It uses the configured `port` executable for searches, installs, upgrades, removals, diagnostics, maintenance, and `port select` operations. Commands that modify the system need administrator rights, which they get from an optional privileged helper (approved once, with Touch ID before each action) or, without it, the macOS password prompt. Their output is streamed to the Activity pane so long-running builds remain visible and can be stopped.
 
 The main window is organized into tabs for installed, available, outdated and inactive ports, along with `port select` selections. App preferences, MacPorts configuration, and health checks live in the Settings window (⌘,). Selecting a port opens details such as its description, variants, dependencies, dependents, and installed files. Installed-port and file information is read directly from the MacPorts registry when possible, while available-port searches use the ports tree.
 
@@ -101,6 +101,24 @@ InstallOptionsView (sheet)
 ├─ Variants list (Toggle per variant)
 └─ Build notice (binary availability / customized variants)
 ```
+
+## Privileged helper
+
+Installs, upgrades, removals and the other commands that change MacPorts need root. By default each one shows the macOS administrator password prompt (`osascript`). A signed build can instead install a small helper, `MacPortsHelper`, from Settings → General → Administrator access:
+
+- The helper is a launchd daemon registered with `SMAppService`. macOS asks you to allow it once in System Settings → Login Items; after that, commands run without a password prompt, their output streams straight back, and Stop cancels them.
+- With "Confirm each action with Touch ID" on (the default), the app asks for Touch ID, or your password, before each command.
+- The helper only accepts connections from MacPortsApp signed by the developer's team, only runs `port` with a short list of verbs and checked arguments (never a shell command), and only runs a `port` that only root can change. `Sources/PortsKit/Privileged` holds the shared protocol, validation and the code that runs `port`; `Sources/PortsHelper` is the daemon.
+- If the helper isn't installed, isn't approved or can't take a command, the app falls back to the password prompt, so nothing depends on it.
+
+The helper only works in a build signed by the team named in `HelperConstants` (`Sources/PortsKit/Privileged/PrivilegedCommand.swift`), and the app's bundle identifier is `io.indegree.MacPortsApp`. Release builds from the workflow are ad hoc signed, so they use the password prompt. To build and try the helper locally:
+
+```sh
+SIGN_IDENTITY="Developer ID Application: Your Name (8Z24F9PX5J)" scripts/package.sh
+cp -R dist/MacPortsApp.app /Applications/    # then open it, and install the helper in Settings
+```
+
+An "Apple Development" identity of the same team works for testing. The helper logs to the unified log under the subsystem `io.indegree.MacPortsApp.helper`.
 
 ## App icon
 

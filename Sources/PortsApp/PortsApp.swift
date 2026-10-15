@@ -45,6 +45,8 @@ struct MacPortsApp: App {
   @State private var configuration = ConfigurationModel()
   @State private var health = HealthModel()
   @State private var appUpdates = AppUpdateModel()
+  // Starts using the privileged helper as soon as the app launches, if it is set up.
+  @State private var helper = HelperModel()
   @Environment(\.openWindow) private var openWindow
 
   var body: some Scene {
@@ -80,6 +82,7 @@ struct MacPortsApp: App {
       SettingsView(configuration: configuration, health: health)
         .environment(activity)
         .environment(appUpdates)
+        .environment(helper)
     }
   }
 

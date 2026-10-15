@@ -15,6 +15,8 @@ struct GeneralSettingsView: View {
   @AppStorage(UpdateNotifier.badgeKey) private var showBadge = true
   @AppStorage(UpdateNotifier.notifyKey) private var notifyOnUpdates = false
   @Environment(AppUpdateModel.self) private var appUpdates
+  @Environment(HelperModel.self) private var helper
+  @AppStorage(HelperModel.confirmKey) private var confirmActions = true
   @AppStorage(AppUpdateModel.autoCheckKey) private var autoCheckApp = true
   @AppStorage(AppUpdateModel.prereleasesKey) private var includePrereleases = false
   @State private var pathDraft = ""
@@ -45,6 +47,29 @@ struct GeneralSettingsView: View {
         Text(
           "The count is refreshed after every sync and upgrade. Notifications need permission "
             + "from macOS and work in the packaged app.")
+      }
+      Section {
+        LabeledContent("Privileged helper") { Text(helperStatus).foregroundStyle(.secondary) }
+        helperControls
+        Toggle("Confirm each action with Touch ID", isOn: $confirmActions)
+          .disabled(helper.status != .enabled)
+        if let failure = helper.failure {
+          StatusLabel(
+            failure, systemImage: "xmark.octagon.fill", color: .red)
+        }
+        if let problem = helper.lastProblem {
+          StatusLabel(
+            "The last command used the password prompt instead: \(problem)",
+            systemImage: "exclamationmark.triangle.fill", color: .orange)
+        }
+      } header: {
+        Text("Administrator access")
+      } footer: {
+        Text(
+          "The helper runs port as root for installs, upgrades and other changes, so macOS asks "
+            + "for approval once (in System Settings, Login Items) and not for every command. "
+            + "With confirmation on, each action asks for Touch ID or your password first. "
+            + "Without the helper, each command shows the macOS password prompt.")
       }
       Section {
         Toggle("Check for new versions of \(AppInfo.name) daily", isOn: $autoCheckApp)
@@ -78,6 +103,33 @@ struct GeneralSettingsView: View {
     }
     .onChange(of: notifyOnUpdates) { if notifyOnUpdates { UpdateNotifier.requestAuthorization() } }
     .onChange(of: includePrereleases) { Task { await appUpdates.check() } }
+  }
+
+  private var helperStatus: String {
+    switch helper.status {
+    case .unsupported: "Not available"
+    case .notInstalled: "Not installed"
+    case .needsApproval: "Waiting for your approval"
+    case .enabled: "Enabled"
+    }
+  }
+
+  @ViewBuilder private var helperControls: some View {
+    switch helper.status {
+    case .unsupported(let reason):
+      Text(reason).foregroundStyle(.secondary)
+    case .notInstalled:
+      Button("Install Helper…", systemImage: "lock.shield") { helper.install() }
+    case .needsApproval:
+      Text("Turn on MacPortsApp under Allow in the Background, then come back to this window.")
+        .foregroundStyle(.secondary)
+      HStack {
+        Button("Open Login Items Settings…", systemImage: "gearshape") { helper.openSettings() }
+        Button("Remove Helper", role: .destructive) { Task { await helper.remove() } }
+      }
+    case .enabled:
+      Button("Remove Helper", role: .destructive) { Task { await helper.remove() } }
+    }
   }
 
   private var appUpdateStatus: String {
