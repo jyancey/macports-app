@@ -22,6 +22,8 @@ import Testing
     var settingsOpened = 0
     /// What the status becomes once registered, as when the user must approve it.
     var afterRegister = SMAppService.Status.requiresApproval
+    /// What the status becomes when registering throws, as macOS does while it waits for approval.
+    var afterFailedRegister: SMAppService.Status?
   }
 
   struct Refused: LocalizedError {
@@ -37,7 +39,10 @@ import Testing
       registration: HelperModel.Registration(
         status: { registry.status },
         register: {
-          if let failure = registry.registerFailure { throw failure }
+          if let failure = registry.registerFailure {
+            if let after = registry.afterFailedRegister { registry.status = after }
+            throw failure
+          }
           registry.registered += 1
           registry.status = registry.afterRegister
         },
@@ -119,19 +124,33 @@ import Testing
     #expect(backends.helper == nil)
   }
 
-  @Test func aHelperMacOSCannotFindIsReportedAndCanStillBeTried() {
+  /// macOS says "not found" for a helper that was never registered, so it is offered.
+  @Test func aHelperNeverRegisteredCanBeInstalled() {
     registry.status = .notFound
-    registry.afterRegister = .requiresApproval
     let model = makeModel()
-    #expect(model.status == .missing)
+    #expect(model.status == .notInstalled)
     #expect(backends.helper == nil)
-    // Trying to install is how the real reason shows, or it works.
     model.install()
     #expect(registry.registered == 1)
     #expect(model.status == .needsApproval)
   }
 
-  @Test func aFailedInstallShowsTheErrorDomainAndCode() {
+  /// What macOS really does: it registers the helper and throws "Operation not
+  /// permitted" (SMAppServiceErrorDomain 1) until the user allows it.
+  @Test func notPermittedWhileWaitingForApprovalIsNotAFailure() {
+    registry.status = .notFound
+    registry.registerFailure = NSError(
+      domain: "SMAppServiceErrorDomain", code: 1,
+      userInfo: [NSLocalizedDescriptionKey: "Operation not permitted"])
+    registry.afterFailedRegister = .requiresApproval
+    let model = makeModel()
+    model.install()
+    #expect(model.failure == nil)
+    #expect(model.status == .needsApproval)
+    #expect(registry.settingsOpened == 1)
+  }
+
+  @Test func aRealFailureShowsTheErrorDomainAndCode() {
     registry.status = .notFound
     registry.registerFailure = NSError(
       domain: "SMAppServiceErrorDomain", code: 1,
@@ -139,7 +158,8 @@ import Testing
     let model = makeModel()
     model.install()
     #expect(model.failure == "Operation not permitted (SMAppServiceErrorDomain 1)")
-    #expect(model.status == .missing)
+    #expect(model.status == .notInstalled)
+    #expect(registry.settingsOpened == 0)
   }
 
   @Test func theLastProblemShowsOnlyWhileTheHelperIsEnabled() {

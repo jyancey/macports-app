@@ -24,9 +24,6 @@ final class HelperModel {
     /// macOS wouldn't let it install a helper (and the helper wouldn't trust it).
     case unsupported(String)
     case notInstalled
-    /// macOS can't find the helper's plist in this app. Installing is still
-    /// tried when asked, since the error it gives says why.
-    case missing
     /// Installed; waiting for the user to allow it in System Settings.
     case needsApproval
     case enabled
@@ -92,7 +89,9 @@ final class HelperModel {
       status = .notInstalled
       backends.helper = nil
     case .notFound:
-      status = .missing
+      // What macOS reports for a daemon that has never been registered, as
+      // well as for one whose plist is missing; registering tells them apart.
+      status = .notInstalled
       backends.helper = nil
     @unknown default:
       status = .notInstalled
@@ -104,14 +103,23 @@ final class HelperModel {
   /// Settings → Login Items, which is opened here.
   func install() {
     failure = nil
+    var registrationError: NSError?
     do {
       try registration.register()
     } catch {
-      let nsError = error as NSError
-      Self.log.error("registering the helper failed: \(nsError.domain) \(nsError.code): \(nsError.localizedDescription)")
-      failure = "\(nsError.localizedDescription) (\(nsError.domain) \(nsError.code))"
+      registrationError = error as NSError
     }
     refresh()
+    // While it waits for approval, macOS registers the helper and still
+    // throws "Operation not permitted" (SMAppServiceErrorDomain 1). That is
+    // the normal way to ask for approval, not a failure.
+    if let registrationError, status != .needsApproval, status != .enabled {
+      Self.log.error(
+        "registering the helper failed: \(registrationError.domain) \(registrationError.code): \(registrationError.localizedDescription)"
+      )
+      failure =
+        "\(registrationError.localizedDescription) (\(registrationError.domain) \(registrationError.code))"
+    }
     if status == .needsApproval { registration.openSettings() }
   }
 
