@@ -30,11 +30,20 @@ import Testing
     var errorDescription: String? { "Operation not permitted" }
   }
 
+  /// A stand-in for Touch ID: records each prompt and answers with `outcome`.
+  final class Authenticator: @unchecked Sendable {
+    var reasons: [String] = []
+    var outcome: (any Error)?
+  }
+
   let registry = Registry()
   let backends = PrivilegedBackends()
+  let defaults = UserDefaults(suiteName: "HelperModelTests-\(UUID().uuidString)")!
+  let authenticator = Authenticator()
 
   func makeModel() -> HelperModel {
     let registry = registry
+    let authenticator = authenticator
     return HelperModel(
       registration: HelperModel.Registration(
         status: { registry.status },
@@ -52,7 +61,12 @@ import Testing
         },
         openSettings: { registry.settingsOpened += 1 },
         isSignedByDeveloper: { registry.signed }),
-      backends: backends, watchActivation: false)
+      backends: backends, defaults: defaults,
+      authenticate: { reason in
+        authenticator.reasons.append(reason)
+        if let outcome = authenticator.outcome { throw outcome }
+      },
+      watchActivation: false)
   }
 
   @Test func startsNotInstalledAndUsesNoHelper() {
@@ -176,6 +190,48 @@ import Testing
     defer { UserDefaults.standard.removeObject(forKey: HelperModel.confirmKey) }
     // Returns at once, without asking for Touch ID.
     try await HelperModel.confirm(reason: "Run sudo port sync")
+  }
+
+  @Test func confirmationIsOnByDefault() {
+    #expect(makeModel().confirmsActions)
+  }
+
+  @Test func turningConfirmationOffAsksForTouchIDFirst() async {
+    let model = makeModel()
+    await model.setConfirmsActions(false)
+    #expect(authenticator.reasons == ["turn off confirmation for administrator actions"])
+    #expect(!model.confirmsActions)
+    #expect(defaults.object(forKey: HelperModel.confirmKey) as? Bool == false)
+    #expect(model.failure == nil)
+  }
+
+  @Test func cancellingTouchIDLeavesConfirmationOn() async {
+    authenticator.outcome = PortClientError.cancelled
+    let model = makeModel()
+    await model.setConfirmsActions(false)
+    #expect(model.confirmsActions)
+    #expect(defaults.object(forKey: HelperModel.confirmKey) == nil)
+    #expect(model.failure == nil)
+  }
+
+  @Test func failingTouchIDLeavesConfirmationOnAndSaysWhy() async {
+    authenticator.outcome = PortClientError.commandFailed(
+      status: -1, stderr: "This Mac can't ask for Touch ID or your password.")
+    let model = makeModel()
+    await model.setConfirmsActions(false)
+    #expect(model.confirmsActions)
+    #expect(defaults.object(forKey: HelperModel.confirmKey) == nil)
+    #expect(model.failure == "This Mac can't ask for Touch ID or your password.")
+  }
+
+  @Test func turningConfirmationBackOnNeedsNoPrompt() async {
+    defaults.set(false, forKey: HelperModel.confirmKey)
+    let model = makeModel()
+    #expect(!model.confirmsActions)
+    await model.setConfirmsActions(true)
+    #expect(authenticator.reasons.isEmpty)
+    #expect(model.confirmsActions)
+    #expect(defaults.bool(forKey: HelperModel.confirmKey))
   }
 
   @Test func thisTestBuildIsNotSignedByTheDeveloper() {
