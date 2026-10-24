@@ -64,6 +64,7 @@ struct HelpView: View {
             "MacPorts shows the installation's version, paths and sources, and lets you add or remove sources.",
             "Self-update and Sync (in the MacPorts pane or the MacPorts menu) refresh MacPorts and the ports tree.",
             "Commands that change your system need administrator rights. Install the privileged helper in General (Administrator access) to approve it once in System Settings and then confirm each action with Touch ID; without it, each command shows the macOS password prompt.",
+            "Before deleting \(AppInfo.name), click Remove Helper in General (Administrator access). Otherwise the app stays listed under Allow in the Background in System Settings → General → Login Items; to clear it, put the app back, open it, click Remove Helper, and delete it again.",
           ])
       }
       .padding(24)
