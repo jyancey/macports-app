@@ -174,25 +174,47 @@ final class HelperModel {
 
   /// Asks for Touch ID, or the password where there is no Touch ID, before a
   /// command runs as root. The helper doesn't ask for a password, so this is
-  /// what keeps each action a deliberate one. Does nothing when switched off,
-  /// or when this Mac has no way to authenticate.
+  /// what keeps each action a deliberate one. Does nothing when switched off.
   nonisolated static func confirm(reason: String) async throws {
-    guard UserDefaults.standard.object(forKey: confirmKey) as? Bool ?? true else { return }
-    guard LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: nil) else { return }
-    try await authenticate(reason: reason)
+    try await confirm(
+      reason: reason,
+      enabled: UserDefaults.standard.object(forKey: confirmKey) as? Bool ?? true,
+      unavailable: authenticationUnavailable(),
+      authenticate: { try await authenticate(reason: $0) })
+  }
+
+  /// The decision behind `confirm`. When this Mac can't authenticate
+  /// (`unavailable` says why), it throws `PrivilegedHelperUnavailable`, so the
+  /// command goes through the macOS password prompt instead: nothing runs as
+  /// root without the user confirming it.
+  nonisolated static func confirm(
+    reason: String, enabled: Bool, unavailable: String?, authenticate: Authenticate
+  ) async throws {
+    guard enabled else { return }
+    if let unavailable { throw PrivilegedHelperUnavailable(unavailable) }
+    try await authenticate(reason)
+  }
+
+  /// Why this Mac can't ask for Touch ID or the password, such as when no
+  /// password is set or Touch ID is locked out; nil when it can.
+  nonisolated static func authenticationUnavailable() -> String? {
+    var error: NSError?
+    guard !LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: &error) else {
+      return nil
+    }
+    let detail = error.map { " (\($0.localizedDescription))" } ?? ""
+    return "this Mac can't ask for Touch ID or your password\(detail)"
   }
 
   /// Asks for Touch ID, or the password where there is no Touch ID. Throws
   /// `PortClientError.cancelled` if the user cancels, and `commandFailed` if
   /// they fail or this Mac has no way to authenticate.
   nonisolated static func authenticate(reason: String) async throws {
-    let context = LAContext()
-    var unavailable: NSError?
-    guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &unavailable) else {
-      let detail = unavailable.map { ": \($0.localizedDescription)" } ?? "."
+    if let unavailable = authenticationUnavailable() {
       throw PortClientError.commandFailed(
-        status: -1, stderr: "This Mac can't ask for Touch ID or your password\(detail)")
+        status: -1, stderr: unavailable.prefix(1).uppercased() + unavailable.dropFirst() + ".")
     }
+    let context = LAContext()
     do {
       try await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)
     } catch let error as LAError

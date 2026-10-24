@@ -234,6 +234,56 @@ import Testing
     #expect(defaults.bool(forKey: HelperModel.confirmKey))
   }
 
+  @Test func aMacThatCannotAuthenticateSkipsTheHelper() async {
+    let authenticator = authenticator
+    await #expect(throws: PrivilegedHelperUnavailable.self) {
+      try await HelperModel.confirm(
+        reason: "Run sudo port sync", enabled: true,
+        unavailable: "this Mac can't ask for Touch ID or your password",
+        authenticate: { authenticator.reasons.append($0) })
+    }
+    #expect(authenticator.reasons.isEmpty)
+  }
+
+  @Test func confirmationAsksForTouchIDWhenTheMacCan() async throws {
+    let authenticator = authenticator
+    try await HelperModel.confirm(
+      reason: "Run sudo port sync", enabled: true, unavailable: nil,
+      authenticate: { authenticator.reasons.append($0) })
+    #expect(authenticator.reasons == ["Run sudo port sync"])
+  }
+
+  @Test func switchedOffConfirmationNeitherAsksNorSkipsTheHelper() async throws {
+    let authenticator = authenticator
+    try await HelperModel.confirm(
+      reason: "Run sudo port sync", enabled: false,
+      unavailable: "this Mac can't ask for Touch ID or your password",
+      authenticate: { authenticator.reasons.append($0) })
+    #expect(authenticator.reasons.isEmpty)
+  }
+
+  /// The refusal reaches `PortClient` as `PrivilegedHelperUnavailable`, which
+  /// it answers with the password prompt, keeping the reason for Settings.
+  /// Nothing is sent to the helper.
+  @Test func theHelperClientPassesTheRefusalOnWithItsReason() async {
+    let reason = "this Mac can't ask for Touch ID or your password"
+    let helper = XPCPrivilegedHelper(
+      confirm: {
+        try await HelperModel.confirm(
+          reason: $0, enabled: true, unavailable: reason, authenticate: { _ in })
+      },
+      machServiceName: "io.indegree.MacPortsApp.tests.no-such-service")
+    do {
+      try await helper.run(
+        PrivilegedCommand(verb: "sync", portPath: "/opt/local/bin/port"), onOutput: { _ in })
+      Issue.record("expected the helper to be skipped")
+    } catch let error as PrivilegedHelperUnavailable {
+      #expect(error.reason == reason)
+    } catch {
+      Issue.record("expected PrivilegedHelperUnavailable, got \(error)")
+    }
+  }
+
   @Test func thisTestBuildIsNotSignedByTheDeveloper() {
     #expect(!HelperModel.Registration.isSignedByDeveloper())
   }
