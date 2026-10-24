@@ -1,10 +1,10 @@
-# MacPorts
+# MacPortsApp
 
 A native macOS GUI for [MacPorts](https://www.macports.org). It sits on top of an existing MacPorts installation and drives the `port` command line tool.
 
 ## How it works
 
-MacPorts App is a native SwiftUI front end for an installed MacPorts environment. It uses the configured `port` executable for searches, installs, upgrades, removals, diagnostics, maintenance, and `port select` operations. Commands that modify the system request macOS administrator authorization, and their output is streamed to the Activity pane so long-running builds remain visible and can be stopped.
+MacPortsApp is a native SwiftUI front end for an installed MacPorts environment. It uses the configured `port` executable for searches, installs, upgrades, removals, diagnostics, maintenance, and `port select` operations. Commands that modify the system need administrator rights, which they get from an optional privileged helper (approved once, with Touch ID before each action) or, without it, the macOS password prompt. Their output is streamed to the Activity pane so long-running builds remain visible and can be stopped.
 
 The main window is organized into tabs for installed, available, outdated and inactive ports, along with `port select` selections. App preferences, MacPorts configuration, and health checks live in the Settings window (⌘,). Selecting a port opens details such as its description, variants, dependencies, dependents, and installed files. Installed-port and file information is read directly from the MacPorts registry when possible, while available-port searches use the ports tree.
 
@@ -14,32 +14,44 @@ Features include:
 - Install ports with variant selection and pre-built binary hints.
 - Upgrade outdated ports individually or in batches, and activate or remove inactive versions.
 - View and change selected versions for groups such as Python, Clang, and GCC.
+- See how much disk space each installed version uses (a sortable Size column, read from the registry's file lists), with totals in the Installed and Inactive headers.
+- Filter the Installed tab to leaf ports, the ones no other installed port depends on and that are safe to remove.
+- Clean a port's work directory and downloaded distfiles from its detail pane or context menu, or clean every installed port at once from Settings → Health.
 - Run `port diagnose`, check registry integrity, and launch `port reclaim` in Terminal.
+- See when the ports tree was last synced under the Available and Outdated lists, with a warning and a Sync Now button when it is more than a week old.
+- Show the number of outdated ports on the Dock icon, and optionally get a notification when a sync finds new updates (both set in Settings → General; notifications need the packaged app).
+- Check GitHub's public releases list for a new version of the app once a day or from the app menu (Check for Updates…), with an option to include pre-releases. Updates are not installed automatically: View Release opens the download page. The daily check can be turned off in Settings → General.
 - Configure the `port` executable path, verbosity, Activity-pane behavior, and ports sources in Settings (⌘,), and run Self-update or Sync from Settings or the MacPorts menu.
 - Use keyboard shortcuts, context menus, resizable list/detail panes, and a persistent Activity log.
 
 ## Status
 
-Early development.
+Early development. See the [releases](https://github.com/jyancey/macports-app/releases) for the latest version.
+
+## Install
+
+Download the zip, dmg or pkg for the newest release from the [releases page](https://github.com/jyancey/macports-app/releases). Builds are for Apple Silicon only and are ad-hoc signed, not notarized, so macOS may ask you to approve the app the first time you open it (System Settings → Privacy & Security → Open Anyway). Use 0.5.2 or later: earlier releases built by the release workflow crash at launch.
 
 ## Architecture
 
-How the main views fit together. `MacPortsApp` owns the app-wide models (`ActivityLog`, `ConfigurationModel`, `HealthModel`) and shares them between the main window and the Settings window.
+How the main views fit together. `MacPortsApp` owns the app-wide models (`ActivityLog`, `ConfigurationModel`, `HealthModel`, `AppUpdateModel`) and shares them between the main window and the Settings window.
 
-```
+```text
 MacPortsApp (App)
 ├─ WindowGroup
 │  └─ ContentView
-│     ├─ Environment: ActivityLog, PortDetailCache, PortActions
+│     ├─ Environment: ActivityLog, PortDetailCache, PortActions, AppUpdateModel
 │     └─ NavigationSplitView
 │        ├─ Sidebar (List of BrowseMode)
 │        │   └─ Items: Installed, Available, Outdated, Inactive, Selections
 │        ├─ Content (mainPane switch on BrowseMode)
-│        │   ├─ Installed → InstalledListView
+│        │   ├─ Installed → InstalledListView (Size column, header total, Leaves only filter)
 │        │   ├─ Available → SearchResultsView (Match picker in its header)
 │        │   ├─ Outdated → OutdatedListView
 │        │   ├─ Inactive → InactiveListView
 │        │   └─ Selections → SelectionsListView (read-only table of groups)
+│        │   + AppUpdateBar above the pane when a newer release is out
+│        │   + PortsTreeSyncBar below Available and Outdated (last sync, Sync Now)
 │        └─ Detail (detailPane switch on selection + mode)
 │            ├─ Available + selected result → PortDetailView(name:isInstalled:...)
 │            ├─ Outdated + single selection → PortDetailView(canUpgrade: true)
@@ -47,20 +59,21 @@ MacPortsApp (App)
 │            ├─ Inactive + single selection → PortDetailView(inactiveVersion: ...)
 │            ├─ Inactive + multi-selection → BatchSelectionView (Remove)
 │            ├─ Installed + selected row
-│            │   ├─ Active → PortDetailView(canUpgrade: update != nil)
+│            │   ├─ Active → PortDetailView(canUpgrade: update != nil; Uninstall and Clean)
 │            │   └─ Inactive → PortDetailView(inactiveVersion: ...)
 │            ├─ Selections + selected group → SelectionDetailView (Select / Unset)
 │            └─ No selection → ContentUnavailableView (prompt + AppIconImage)
 │            + Activity Pane (ActivityPane) appended below detail when visible
 ├─ Settings (⌘,) → SettingsView
-│  ├─ General → GeneralSettingsView (Activity options, port executable path)
+│  ├─ General → GeneralSettingsView (Activity options, Dock badge and notifications, app update check, port executable path)
 │  ├─ MacPorts → MacPortsSettingsView (installation facts, Self-update/Sync, sources)
-│  └─ Health → HealthView (port diagnose, registry integrity, port reclaim)
+│  └─ Health → HealthView (port diagnose, registry integrity, port reclaim, Clean All Build Files)
 ├─ Window "Help" → HelpView
-└─ Commands → AppCommands (Find, View menu tabs/panes, MacPorts menu)
+└─ Commands → AppCommands (Find, View menu tabs/panes, MacPorts menu, Check for Updates…)
 
 Toolbars (ContentView.toolbar)
 ├─ Activity toggle (ActivityToolbarIcon)
+├─ Leaves only toggle (Installed)
 ├─ Pre-built only toggles (Available/Outdated)
 ├─ Upgrade buttons (Outdated)
 ├─ Remove buttons (Inactive)
@@ -89,9 +102,27 @@ InstallOptionsView (sheet)
 └─ Build notice (binary availability / customized variants)
 ```
 
+## Privileged helper
+
+Installs, upgrades, removals and the other commands that change MacPorts need root. By default each one shows the macOS administrator password prompt (`osascript`). A signed build can instead install a small helper, `MacPortsHelper`, from Settings → General → Administrator access:
+
+- The helper is a launchd daemon registered with `SMAppService`. macOS asks you to allow it once in System Settings → Login Items; after that, commands run without a password prompt, their output streams straight back, and Stop cancels them.
+- With "Confirm each action with Touch ID" on (the default), the app asks for Touch ID, or your password, before each command.
+- The helper only accepts connections from MacPortsApp signed by the developer's team, only runs `port` with a short list of verbs and checked arguments (never a shell command), and only runs a `port` that only root can change. `Sources/PortsKit/Privileged` holds the shared protocol, validation and the code that runs `port`; `Sources/PortsHelper` is the daemon.
+- If the helper isn't installed, isn't approved or can't take a command, the app falls back to the password prompt, so nothing depends on it.
+
+The helper only works in a build signed by the team named in `HelperConstants` (`Sources/PortsKit/Privileged/PrivilegedCommand.swift`), and the app's bundle identifier is `io.indegree.MacPortsApp`. Release builds from the workflow are ad hoc signed, so they use the password prompt. To build and try the helper locally:
+
+```sh
+SIGN_IDENTITY="Developer ID Application: Your Name (8Z24F9PX5J)" scripts/package.sh
+cp -R dist/MacPortsApp.app /Applications/    # then open it, and install the helper in Settings
+```
+
+An "Apple Development" identity of the same team works for testing. The helper logs to the unified log under the subsystem `io.indegree.MacPortsApp.helper`.
+
 ## App icon
 
-The About panel and the empty state show the app icon (`Resources/AppIcon.png`).
+The About panel and the empty state show the app icon (`Sources/PortsApp/Resources/AppIcon.png`). Load bundled resources through `AppResources`, not `Bundle.module`: the packaged app keeps the resource bundle in `Contents/Resources`, where `Bundle.module` doesn't look, and it stops the app with a fatal error when it can't find the bundle.
 
 ## Requirements
 
@@ -131,12 +162,14 @@ CI (`.github/workflows/ci.yml`) builds and tests every push and pull request to 
 Releases follow git flow, and `scripts/release.sh` does the whole sequence: it branches `release/<version>` from `develop`, bumps the fallback version in `Sources/PortsApp/PortsApp.swift`, runs the tests, merges into `main`, tags `main` with an annotated tag whose message holds the release notes, and merges `main` back into `develop`:
 
 ```sh
-scripts/release.sh --dry-run 0.4.3          # show the notes and steps
-scripts/release.sh 0.4.3                    # cut it locally
-scripts/release.sh --notes notes.md --push 0.4.3   # own notes, push to every remote
+scripts/release.sh --dry-run 0.6.0          # show the notes and steps
+scripts/release.sh 0.6.0                    # cut it locally
+scripts/release.sh --notes notes.md --push 0.6.0   # own notes, push to every remote
 ```
 
 Without `--notes`, the notes list the commit subjects on `develop` since the last release. The script refuses to run with uncommitted changes, an existing tag, a version that doesn't come after the current one, or a remote `main`/`develop` that has commits the local one lacks. If a step fails it stops and says which, leaving the repository as it is. Without `--push` it prints the push commands instead.
+
+`release.sh` always branches from `develop`. For a fix to a release that is already out, use a git flow hotfix instead: `git flow hotfix start <version>`, make the fix, bump the fallback version in `Sources/PortsApp/PortsApp.swift`, then `git flow hotfix finish <version> --messagefile notes.md` (the tag message becomes the release notes), and push `main`, `develop` and the tag.
 
 Pushing the tag runs the Release workflow (`.github/workflows/release.yml`). It checks that the tag matches the app's version (`scripts/release-notes.sh`), runs the tests, builds the zip, pkg and dmg with `scripts/package.sh`, and publishes a release with them attached. The tag message's body (or its subject, if there is no body) becomes the release notes. Tags containing a `-`, such as `0.5.0-rc.1`, are published as pre-releases. On GitHub the release is created with `gh`; on Gitea, `scripts/gitea-release.sh` uses the Gitea API. To rebuild an existing release, run the workflow by hand with the tag as input.
 

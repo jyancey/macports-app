@@ -17,6 +17,7 @@ public final class CommandStop: Sendable {
 
   private struct State {
     var file: URL?
+    var cancel: (@Sendable () -> Void)?
     var requested = false
   }
 
@@ -29,11 +30,12 @@ public final class CommandStop: Sendable {
 
   /// Stops the command now, or as soon as it starts.
   public func request() {
-    let file = state.withLock { state in
+    let (file, cancel) = state.withLock { state in
       state.requested = true
-      return state.file
+      return (state.file, state.cancel)
     }
     if let file { Self.touch(file) }
+    cancel?()
   }
 
   /// Called by the running command with the file its shell watches.
@@ -45,8 +47,21 @@ public final class CommandStop: Sendable {
     if requested { Self.touch(file) }
   }
 
+  /// Called by a command running in the privileged helper, which is stopped
+  /// by calling `cancel` rather than by a file.
+  func registerCancel(_ cancel: @escaping @Sendable () -> Void) {
+    let requested = state.withLock { state in
+      state.cancel = cancel
+      return state.requested
+    }
+    if requested { cancel() }
+  }
+
   func unregister() {
-    state.withLock { $0.file = nil }
+    state.withLock { state in
+      state.file = nil
+      state.cancel = nil
+    }
   }
 
   private static func touch(_ file: URL) {

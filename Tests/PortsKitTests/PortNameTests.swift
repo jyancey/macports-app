@@ -74,3 +74,12 @@ struct PortNameTests {
   // Nothing to upgrade, so nothing runs.
   try await client.upgrade([String]()) { _ in }
 }
+
+@Test func cleanRejectsInvalidNamesBeforeRunningAnything() async {
+  let client = PortClient()
+  for name in ["", "-f", "a b", "a;rm", "$(x)"] {
+    await #expect(throws: PortClientError.self) {
+      try await client.clean(name) { _ in }
+    }
+  }
+}

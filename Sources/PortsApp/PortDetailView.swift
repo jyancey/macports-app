@@ -312,6 +312,9 @@ struct PortDetailView: View {
         actions.requestUninstall(name)
       }
       .disabled(!actions.canStart(name))
+      Button("Clean", systemImage: "sparkles") { Task { await actions.clean(name) } }
+        .disabled(!actions.canStart(name))
+        .help("Delete this port's work directory and downloaded distfiles")
     }
   }
 

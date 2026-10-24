@@ -12,6 +12,13 @@ struct GeneralSettingsView: View {
   @AppStorage(PortClient.verboseDefaultsKey) private var verbose = false
   @AppStorage(ActivityLog.autoOpenKey) private var autoOpen = true
   @AppStorage(PortClient.executablePathDefaultsKey) private var portPath = ""
+  @AppStorage(UpdateNotifier.badgeKey) private var showBadge = true
+  @AppStorage(UpdateNotifier.notifyKey) private var notifyOnUpdates = false
+  @Environment(AppUpdateModel.self) private var appUpdates
+  @Environment(HelperModel.self) private var helper
+  @AppStorage(HelperModel.confirmKey) private var confirmActions = true
+  @AppStorage(AppUpdateModel.autoCheckKey) private var autoCheckApp = true
+  @AppStorage(AppUpdateModel.prereleasesKey) private var includePrereleases = false
   @State private var pathDraft = ""
   /// What's wrong with the typed `port` path; updated when it changes rather
   /// than checking the disk on every redraw.
@@ -31,12 +38,107 @@ struct GeneralSettingsView: View {
           "Verbose output passes -v to port so the Activity pane shows full configure and build "
             + "output. Turn it off for faster, quieter runs.")
       }
+      Section {
+        Toggle("Show the number of outdated ports on the Dock icon", isOn: $showBadge)
+        Toggle("Notify when a sync finds new updates", isOn: $notifyOnUpdates)
+      } header: {
+        Text("Updates")
+      } footer: {
+        Text(
+          "The count is refreshed after every sync and upgrade. Notifications need permission "
+            + "from macOS and work in the packaged app.")
+      }
+      Section {
+        LabeledContent("Privileged helper") { Text(helperStatus).foregroundStyle(.secondary) }
+        helperControls
+        Toggle("Confirm each action with Touch ID", isOn: $confirmActions)
+          .disabled(helper.status != .enabled)
+        if let failure = helper.failure {
+          StatusLabel(
+            failure, systemImage: "xmark.octagon.fill", color: .red)
+        }
+        if let problem = helper.lastProblem {
+          StatusLabel(
+            "The last command used the password prompt instead: \(problem)",
+            systemImage: "exclamationmark.triangle.fill", color: .orange)
+        }
+      } header: {
+        Text("Administrator access")
+      } footer: {
+        Text(
+          "The helper runs port as root for installs, upgrades and other changes, so macOS asks "
+            + "for approval once (in System Settings, Login Items) and not for every command. "
+            + "With confirmation on, each action asks for Touch ID or your password first. "
+            + "Without the helper, each command shows the macOS password prompt.")
+      }
+      Section {
+        Toggle("Check for new versions of \(AppInfo.name) daily", isOn: $autoCheckApp)
+        Toggle("Include pre-releases", isOn: $includePrereleases)
+        HStack {
+          Button("Check Now") {
+            Task {
+              appUpdates.clearSkipped()
+              await appUpdates.check()
+            }
+          }
+          .disabled(appUpdates.isChecking)
+          if appUpdates.isChecking { ProgressView().controlSize(.small) }
+          Text(appUpdateStatus).foregroundStyle(.secondary)
+        }
+      } header: {
+        Text("\(AppInfo.name) updates")
+      } footer: {
+        Text(
+          "Looks for new releases on GitHub. Updates are not installed automatically: "
+            + "View Release opens the download page.")
+      }
       Section("MacPorts location") {
         pathEditor
       }
     }
     .formStyle(.grouped)
     .task { pathDraft = PortClient.configuredExecutablePath }
+    .onChange(of: showBadge) {
+      UpdateNotifier.shared.updateBadge(count: UpdateNotifier.shared.lastCount)
+    }
+    .onChange(of: notifyOnUpdates) { if notifyOnUpdates { UpdateNotifier.requestAuthorization() } }
+    .onChange(of: includePrereleases) { Task { await appUpdates.check() } }
+  }
+
+  private var helperStatus: String {
+    switch helper.status {
+    case .unsupported: "Not available"
+    case .notInstalled: "Not installed"
+    case .needsApproval: "Waiting for your approval"
+    case .enabled: "Enabled"
+    }
+  }
+
+  @ViewBuilder private var helperControls: some View {
+    switch helper.status {
+    case .unsupported(let reason):
+      Text(reason).foregroundStyle(.secondary)
+    case .notInstalled:
+      Button("Install Helper…", systemImage: "lock.shield") { helper.install() }
+    case .needsApproval:
+      Text("Turn on MacPortsApp under Allow in the Background, then come back to this window.")
+        .foregroundStyle(.secondary)
+      HStack {
+        Button("Open Login Items Settings…", systemImage: "gearshape") { helper.openSettings() }
+        Button("Remove Helper", role: .destructive) { Task { await helper.remove() } }
+      }
+    case .enabled:
+      Button("Remove Helper", role: .destructive) { Task { await helper.remove() } }
+    }
+  }
+
+  private var appUpdateStatus: String {
+    switch appUpdates.outcome {
+    case nil: "Version \(appUpdates.currentVersion)"
+    case .upToDate?: "Up to date (version \(appUpdates.currentVersion))"
+    case .updateAvailable(let release)?: "\(release.tag) is available"
+    case .failed(let message)?: message
+    }
   }
 
   private var pathEditor: some View {

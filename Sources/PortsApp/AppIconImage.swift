@@ -11,7 +11,7 @@ struct AppIconImage: View {
 
   /// Read from disk once; the view is drawn on every redraw of the empty
   /// detail pane.
-  @MainActor private static let icon: NSImage? = Bundle.module
+  @MainActor private static let icon: NSImage? = AppResources
     .url(forResource: "AppIcon", withExtension: "png")
     .flatMap(NSImage.init(contentsOf:))
 

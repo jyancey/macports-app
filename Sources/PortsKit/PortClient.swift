@@ -108,6 +108,20 @@ public struct PortClient: Sendable {
     return PortListParser.parseInstalled(output)
   }
 
+  /// Names of installed ports nothing else depends on, read from the registry;
+  /// nil when the registry can't be read.
+  public func leafPorts() async -> Set<String>? {
+    guard let registry else { return nil }
+    return await Task.detached(priority: .utility) { try? registry.leafPorts() }.value
+  }
+
+  /// Disk usage of every installed version, keyed by `InstalledPort.id`, read
+  /// from the registry; nil when the registry can't be read.
+  public func diskUsage() async -> [String: Int64]? {
+    guard let registry else { return nil }
+    return await Task.detached(priority: .utility) { try? registry.diskUsage() }.value
+  }
+
   /// Names of available ports matching `term` under `scope`, best matches first.
   public func search(_ term: String, scope: SearchScope = .name) async throws -> [String] {
     let term = term.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -153,9 +167,10 @@ public struct PortClient: Sendable {
   }
 
   /// Installs a port, streaming `port`'s output to `onOutput` as it is produced.
-  /// `port install` needs root, so it runs through the standard macOS
-  /// macOS administrator authorization prompt. That prompt can't stream output, so the
-  /// command writes to a private log file that is tailed while it runs.
+  /// `port install` needs root, so it runs in the privileged helper when that
+  /// is set up. Otherwise it runs through the standard macOS administrator
+  /// password prompt, which can't stream output, so the command writes to a
+  /// private log file that is tailed while it runs.
   public func install(
     _ name: String, variantFlags: [String] = [],
     onOutput: @escaping @MainActor @Sendable (String) -> Void
@@ -182,6 +197,21 @@ public struct PortClient: Sendable {
     onOutput: @escaping @MainActor @Sendable (String) -> Void
   ) async throws {
     try await runStreaming(action: "uninstall", name: name, onOutput: onOutput)
+  }
+
+  /// Deletes a port's work directory, distfiles and logs (`port clean --all`).
+  /// The installed port is untouched; this only frees build leftovers.
+  public func clean(
+    _ name: String,
+    onOutput: @escaping @MainActor @Sendable (String) -> Void
+  ) async throws {
+    try await runStreaming(action: "clean --all", name: name, onOutput: onOutput)
+  }
+
+  /// Deletes the work directories, distfiles and logs of every installed
+  /// port (`port clean --all installed`).
+  public func cleanAll(onOutput: @escaping @MainActor @Sendable (String) -> Void) async throws {
+    try await runStreaming(action: "clean --all", name: "installed", onOutput: onOutput)
   }
 
   /// Ports with a newer version available.
@@ -340,6 +370,23 @@ public struct PortClient: Sendable {
       throw PortClientError.invalidName(executableURL.path)
     }
 
+    // The privileged helper, when it is set up: no password prompt, and the
+    // output comes back directly. If it can't take the command, the password
+    // prompt below still can.
+    if let helper = PrivilegedBackends.shared.helper {
+      let words = "\(action) \(arguments)".split(separator: " ").map(String.init)
+      let command = PrivilegedCommand(
+        verb: words.first ?? "", arguments: Array(words.dropFirst()), verbose: verbose,
+        portPath: executableURL.path)
+      do {
+        try await helper.run(command, onOutput: onOutput)
+        PrivilegedBackends.shared.lastProblem = nil
+        return
+      } catch let error as PrivilegedHelperUnavailable {
+        PrivilegedBackends.shared.lastProblem = error.reason
+      }
+    }
+
     let directory = FileManager.default.temporaryDirectory
       .appendingPathComponent("ports-app-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(
@@ -414,11 +461,27 @@ public struct PortClient: Sendable {
     }
   }
 
+  /// `<prefix>/etc/macports/sources.conf` for the prefix `port` is in.
+  var standardSourcesConfPath: String {
+    executableURL.deletingLastPathComponent().deletingLastPathComponent().path
+      + "/etc/macports/sources.conf"
+  }
+
   private func editSources(_ confPath: String, _ transform: (String) throws -> String) async throws
   {
     guard PortClient.isSafePath(confPath) else { throw PortClientError.invalidName(confPath) }
     let current = (try? String(contentsOfFile: confPath, encoding: .utf8)) ?? ""
     let updated = try transform(current)
+    // The helper only writes the standard sources.conf of this installation.
+    if let helper = PrivilegedBackends.shared.helper, confPath == standardSourcesConfPath {
+      do {
+        try await helper.writeSources(updated, portPath: executableURL.path)
+        PrivilegedBackends.shared.lastProblem = nil
+        return
+      } catch let error as PrivilegedHelperUnavailable {
+        PrivilegedBackends.shared.lastProblem = error.reason
+      }
+    }
     let directory = FileManager.default.temporaryDirectory
       .appendingPathComponent("ports-app-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(

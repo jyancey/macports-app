@@ -88,6 +88,38 @@ import Testing
     #expect(try registry.dependents(of: "Cairo").isEmpty)
   }
 
+  @Test func leavesAreInstalledPortsNothingDependsOn() throws {
+    let (registry, directory) = try Self.makeRegistry([
+      "INSERT INTO ports VALUES (1, 'zlib', 0, '1', 0, '', 'installed')",
+      "INSERT INTO ports VALUES (2, 'curl', 0, '1', 0, '', 'installed')",
+      "INSERT INTO ports VALUES (3, 'Cairo', 0, '1', 0, '', 'installed')",
+      "INSERT INTO ports VALUES (4, 'old', 0, '1', 0, '', 'imaged')",
+      "INSERT INTO ports VALUES (5, 'self', 0, '1', 0, '', 'installed')",
+      "INSERT INTO ports VALUES (6, 'removed', 0, '1', 0, '', 'uninstalled')",
+      "INSERT INTO ports VALUES (7, 'lonely', 0, '1', 0, '', 'installed')",
+      "INSERT INTO dependencies VALUES (2, 'zlib', '')",
+      "INSERT INTO dependencies VALUES (3, 'curl', '')",
+      "INSERT INTO dependencies VALUES (3, 'zlib', '')",
+      "INSERT INTO dependencies VALUES (5, 'self', '')",
+      "INSERT INTO dependencies VALUES (6, 'lonely', '')",
+    ])
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    // zlib and curl are needed; a dependency from a removed port or from
+    // itself doesn't count; inactive versions are listed like active ones.
+    #expect(try registry.leafPorts() == ["Cairo", "old", "self", "lonely"])
+  }
+
+  @Test func inactiveDependentsStillKeepAPortOutOfTheLeaves() throws {
+    let (registry, directory) = try Self.makeRegistry([
+      "INSERT INTO ports VALUES (1, 'zlib', 0, '1', 0, '', 'installed')",
+      "INSERT INTO ports VALUES (2, 'curl', 0, '1', 0, '', 'imaged')",
+      "INSERT INTO dependencies VALUES (2, 'zlib', '')",
+    ])
+    defer { try? FileManager.default.removeItem(at: directory) }
+    #expect(try registry.leafPorts() == ["curl"])
+  }
+
   @Test func missingOrCorruptDatabaseThrows() throws {
     let missing = PortRegistry(path: "/nonexistent/registry.db")
     #expect(throws: PortRegistryError.self) { try missing.installedPorts() }
@@ -114,6 +146,46 @@ import Testing
     #expect(cmp("1.0", "1.0rc1") > 0)
     #expect(cmp("2", "10") < 0)
     #expect(cmp("1.1", "1.a") > 0)
+  }
+
+  @Test func diskUsageSumsEachVersionsFiles() throws {
+    let files = FileManager.default.temporaryDirectory
+      .appendingPathComponent("usage-test-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: files, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: files) }
+    func write(_ name: String, bytes: Int) throws -> String {
+      let url = files.appendingPathComponent(name)
+      try Data(count: bytes).write(to: url)
+      return url.path
+    }
+    let a = try write("a", bytes: 1000)
+    let b = try write("b", bytes: 234)
+    let image = try write("image", bytes: 50)
+    let hardLink = files.appendingPathComponent("a-link").path
+    try FileManager.default.linkItem(atPath: a, toPath: hardLink)
+    let symlink = files.appendingPathComponent("a-sym").path
+    try FileManager.default.createSymbolicLink(atPath: symlink, withDestinationPath: a)
+    let (registry, directory) = try Self.makeRegistry([
+      "INSERT INTO ports VALUES (1, 'zlib', 0, '1.3', 0, '', 'installed')",
+      "INSERT INTO ports VALUES (2, 'zlib', 0, '1.2', 0, '', 'imaged')",
+      "INSERT INTO ports VALUES (3, 'empty', 0, '1', 0, '', 'installed')",
+      "INSERT INTO ports VALUES (4, 'gone', 0, '1', 0, '', 'installed')",
+      "INSERT INTO files VALUES (1, '\(a)', '\(a)', 1, 0)",
+      "INSERT INTO files VALUES (1, '\(b)', '\(b)', 1, 0)",
+      "INSERT INTO files VALUES (1, '\(hardLink)', '\(hardLink)', 1, 0)",
+      "INSERT INTO files VALUES (1, '\(symlink)', '\(symlink)', 1, 0)",
+      "INSERT INTO files VALUES (1, '\(files.path)', '\(files.path)', 1, 0)",
+      "INSERT INTO files VALUES (2, '/opt/local/lib/old', '\(image)', 0, 0)",
+      "INSERT INTO files VALUES (2, '\(a)', '', 0, 0)",
+      "INSERT INTO files VALUES (4, '/nonexistent/file', '/nonexistent/file', 1, 0)",
+    ])
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let usage = try registry.diskUsage()
+    #expect(usage["zlib@1.3_0"] == 1234)
+    // The inactive version is measured at its image path, falling back to `path`.
+    #expect(usage["zlib@1.2_0"] == 1050)
+    #expect(usage["empty@1_0"] == nil)
+    #expect(usage["gone@1_0"] == nil)
   }
 
   @Test func collationLetsSQLiteVerifyVersionIndexes() throws {
