@@ -16,7 +16,6 @@ struct GeneralSettingsView: View {
   @AppStorage(UpdateNotifier.notifyKey) private var notifyOnUpdates = false
   @Environment(AppUpdateModel.self) private var appUpdates
   @Environment(HelperModel.self) private var helper
-  @AppStorage(HelperModel.confirmKey) private var confirmActions = true
   @AppStorage(AppUpdateModel.autoCheckKey) private var autoCheckApp = true
   @AppStorage(AppUpdateModel.prereleasesKey) private var includePrereleases = false
   @State private var pathDraft = ""
@@ -51,8 +50,15 @@ struct GeneralSettingsView: View {
       Section {
         LabeledContent("Privileged helper") { Text(helperStatus).foregroundStyle(.secondary) }
         helperControls
-        Toggle("Confirm each action with Touch ID", isOn: $confirmActions)
-          .disabled(helper.status != .enabled)
+        // Switching it off asks for Touch ID first, so the switch follows the
+        // model rather than flipping straight away.
+        Toggle(
+          "Confirm each action with Touch ID",
+          isOn: Binding(
+            get: { helper.confirmsActions },
+            set: { on in Task { await helper.setConfirmsActions(on) } })
+        )
+        .disabled(helper.status != .enabled)
         if let failure = helper.failure {
           StatusLabel(
             failure, systemImage: "xmark.octagon.fill", color: .red)

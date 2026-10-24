@@ -32,8 +32,12 @@ final class HelperModel {
   private static let log = Logger(subsystem: HelperConstants.appIdentifier, category: "helper")
 
   private(set) var status: Status = .notInstalled
-  /// What went wrong the last time installing or removing failed.
+  /// What went wrong the last time installing, removing or turning off
+  /// confirmation failed.
   private(set) var failure: String?
+  /// Whether each command run through the helper asks for Touch ID first. On
+  /// by default; see `setConfirmsActions`.
+  private(set) var confirmsActions: Bool
 
   /// Reports the helper's registration; replaced in tests.
   @MainActor struct Registration {
@@ -44,15 +48,26 @@ final class HelperModel {
     var isSignedByDeveloper: () -> Bool
   }
 
+  /// Asks for Touch ID or the password, throwing if the user doesn't pass;
+  /// replaced in tests.
+  typealias Authenticate = @Sendable (_ reason: String) async throws -> Void
+
   private let registration: Registration
   private let backends: PrivilegedBackends
+  private let defaults: UserDefaults
+  private let authenticate: Authenticate
 
   init(
     registration: Registration = .live, backends: PrivilegedBackends = .shared,
+    defaults: UserDefaults = .standard,
+    authenticate: @escaping Authenticate = { try await HelperModel.authenticate(reason: $0) },
     watchActivation: Bool = true
   ) {
     self.registration = registration
     self.backends = backends
+    self.defaults = defaults
+    self.authenticate = authenticate
+    confirmsActions = defaults.object(forKey: Self.confirmKey) as? Bool ?? true
     refresh()
     if watchActivation {
       // The user approves the helper in System Settings, then comes back.
@@ -131,6 +146,29 @@ final class HelperModel {
     refresh()
   }
 
+  /// Turns confirmation on at once, but off only once the user passes Touch ID
+  /// or the password: without it, anything able to drive the app gets root
+  /// without a prompt. If they cancel or fail, it stays on.
+  func setConfirmsActions(_ on: Bool) async {
+    guard on != confirmsActions else { return }
+    if !on {
+      do {
+        try await authenticate("turn off confirmation for administrator actions")
+      } catch PortClientError.cancelled {
+        return
+      } catch PortClientError.commandFailed(_, let message) {
+        failure = message
+        return
+      } catch {
+        failure = error.localizedDescription
+        return
+      }
+    }
+    failure = nil
+    confirmsActions = on
+    defaults.set(on, forKey: Self.confirmKey)
+  }
+
   /// Why commands recently used the password prompt, if the helper was set up.
   var lastProblem: String? { status == .enabled ? backends.lastProblem : nil }
 
@@ -140,10 +178,20 @@ final class HelperModel {
   /// or when this Mac has no way to authenticate.
   nonisolated static func confirm(reason: String) async throws {
     guard UserDefaults.standard.object(forKey: confirmKey) as? Bool ?? true else { return }
+    guard LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: nil) else { return }
+    try await authenticate(reason: reason)
+  }
+
+  /// Asks for Touch ID, or the password where there is no Touch ID. Throws
+  /// `PortClientError.cancelled` if the user cancels, and `commandFailed` if
+  /// they fail or this Mac has no way to authenticate.
+  nonisolated static func authenticate(reason: String) async throws {
     let context = LAContext()
     var unavailable: NSError?
     guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &unavailable) else {
-      return
+      let detail = unavailable.map { ": \($0.localizedDescription)" } ?? "."
+      throw PortClientError.commandFailed(
+        status: -1, stderr: "This Mac can't ask for Touch ID or your password\(detail)")
     }
     do {
       try await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)
