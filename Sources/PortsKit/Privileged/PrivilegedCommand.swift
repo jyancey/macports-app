@@ -15,6 +15,7 @@ public enum HelperConstants {
   public static let daemonPlistName = "io.indegree.MacPortsApp.helper.plist"
   public static let teamID = "8Z24F9PX5J"
   /// Bumped when the requests or replies change, so an old helper is not used.
+  /// PrivilegedProtocolShapeTests fails if they change without a bump.
   public static let protocolVersion = 1
 
   /// A code-signing requirement for the other end of the connection: signed
@@ -163,7 +164,7 @@ public struct SourcesUpdate: Codable, Sendable, Equatable {
 
 /// How a privileged request ended.
 public struct PrivilegedResult: Codable, Sendable, Equatable {
-  public enum Kind: String, Codable, Sendable {
+  public enum Kind: String, Codable, Sendable, CaseIterable {
     /// `port` ran; `status` is its exit status.
     case finished
     /// The request was cancelled and `port` stopped.
