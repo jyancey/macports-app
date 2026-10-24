@@ -40,14 +40,24 @@ enum AppInfo {
 @main
 struct MacPortsApp: App {
   @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
-  @State private var activity = ActivityLog()
+  @State private var activity: ActivityLog
   // Shared by every window and the Settings window.
-  @State private var configuration = ConfigurationModel()
-  @State private var health = HealthModel()
-  @State private var appUpdates = AppUpdateModel()
+  @State private var configuration: ConfigurationModel
+  @State private var health: HealthModel
+  @State private var appUpdates: AppUpdateModel
   // Starts using the privileged helper as soon as the app launches, if it is set up.
-  @State private var helper = HelperModel()
+  @State private var helper: HelperModel
   @Environment(\.openWindow) private var openWindow
+
+  init() {
+    // Before the models are made: some read their preferences straight away.
+    SettingsMigration.runForApp()
+    _activity = State(initialValue: ActivityLog())
+    _configuration = State(initialValue: ConfigurationModel())
+    _health = State(initialValue: HealthModel())
+    _appUpdates = State(initialValue: AppUpdateModel())
+    _helper = State(initialValue: HelperModel())
+  }
 
   var body: some Scene {
     WindowGroup {
